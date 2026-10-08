@@ -1,0 +1,11 @@
+#!/bin/sh
+# Run a Wine command in the Wolfenstein TNO NotProton prefix
+export CX_HOME="$HOME/Library/Application Support/CrossOver"
+export CX_ROOT="$HOME/Library/Application Support/notproton/runners/crossover-26.3.0.39832/CrossOver"
+export WINELOADER="$CX_ROOT/lib/wine/x86_64-unix/wine"
+export WINESERVER="$CX_ROOT/bin/wineserver"
+export WINEDLLPATH="$CX_ROOT/lib/wine/x86_64-windows:$CX_ROOT/lib/wine/x86_64-unix"
+export PATH="$CX_ROOT/bin:$PATH"
+export WINEPREFIX="$HOME/Library/Application Support/Steam/steamapps/compatdata/201810/pfx"
+export WINEDEBUG="${WINEDEBUG:--all}"
+exec "$WINELOADER" "$@"

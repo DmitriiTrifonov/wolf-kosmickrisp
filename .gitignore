@@ -1,0 +1,21 @@
+# Large/derived artifacts; Mesa changes are tracked in mesa-patches.diff
+/mesa/
+/mesa-26.2.4-pristine.tar.gz
+/build-*/
+/clctools/
+/py-x64/
+/sym/
+/backup/*.dylib
+/backup/mesa-pal1000/
+*.dll
+*.exe
+*.o
+*.dylib
+.DS_Store
+# test binaries
+/mtl4test/t
+/mtl4test/ds
+/mtl4test/hb
+/mtl4test/lim
+/mtl4test/lt
+/gltest/*.txt

@@ -1,0 +1,1191 @@
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/gallium/drivers/zink/__pycache__/zink_extensions.cpython-314.pyc and mesa-mesa-26.2.4/src/gallium/drivers/zink/__pycache__/zink_extensions.cpython-314.pyc differ
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-08 23:36:18.000000000 +0300
+@@ -10,7 +10,7 @@
+ #include "util/u_inlines.h"
+ #include "util/u_memory.h"
+ 
+-#define MAX_NUM_QUERIES 512
++#define MAX_NUM_QUERIES 32 /* small pools: long-lived queries pin whole pools, and KosmicKrisp has only 32768 occlusion slots */
+ #define NOWAIT_CHECK_THRESHOLD 10 //prevent spinning
+ 
+ #define ZINK_QUERY_RENDER_PASSES (PIPE_QUERY_DRIVER_SPECIFIC + 0)
+@@ -989,6 +989,16 @@
+ 
+    query->predicate_dirty = true;
+ 
++   /* Release every vk query held by previous starts: clearing the array alone
++    * keeps stale entries referenced, which pins whole query pools forever. */
++   struct zink_query_start *old_starts = query->starts.data;
++   unsigned num_old = query->starts.capacity / sizeof(struct zink_query_start);
++   for (unsigned j = 0; j < num_old; j++) {
++      for (unsigned i = 0; i < PIPE_MAX_VERTEX_STREAMS; i++) {
++         unref_vk_query(ctx, old_starts[j].vkq[i]);
++         old_starts[j].vkq[i] = NULL;
++      }
++   }
+    util_dynarray_clear(&query->starts);
+    query->start_offset = 0;
+ 
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_argument_table.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ #include <Metal/MTL4ArgumentTable.h>
+ #include <Metal/MTLDevice.h>
+@@ -12,6 +13,7 @@
+ mtl_argument_table_descriptor *
+ mtl_new_argument_table_descriptor()
+ {
++   kk_bridge_note(0, "mtl_new_argument_table_descriptor");
+    @autoreleasepool {
+       return [[MTL4ArgumentTableDescriptor new] init];
+    }
+@@ -32,6 +34,7 @@
+ mtl_new_argument_table(mtl_device *device,
+                        mtl_argument_table_descriptor *descriptor)
+ {
++   kk_bridge_note(1, "mtl_new_argument_table");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       MTL4ArgumentTableDescriptor *desc = (MTL4ArgumentTableDescriptor *)descriptor;
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-08 23:01:09.000000000 +0300
+@@ -48,3 +48,24 @@
+       [obj release];
+    }
+ }
++
++/* TEMP diagnostics: count Metal object creation per bridge function */
++#include <stdio.h>
++#include <stdatomic.h>
++#include <time.h>
++static _Atomic long kk_bridge_counts[128];
++static const char *kk_bridge_names[128];
++static _Atomic long kk_bridge_total;
++void kk_bridge_note(int id, const char *name)
++{
++   kk_bridge_names[id] = name;
++   kk_bridge_counts[id]++;
++   if ((++kk_bridge_total % 3000) == 0) {
++      char line[2048]; int o = 0;
++      o += snprintf(line + o, sizeof(line) - o, "kkbridge2: t=%ld", (long)time(NULL));
++      for (int i = 0; i < 128 && o < (int)sizeof(line) - 64; i++)
++         if (kk_bridge_counts[i] > 100)
++            o += snprintf(line + o, sizeof(line) - o, " %d=%ld", i, (long)kk_bridge_counts[i]);
++      fprintf(stderr, "%s\n", line);
++   }
++}
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_buffer.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ /* TODO_KOSMICKRISP Remove */
+ #include "kk_image_layout.h"
+@@ -43,13 +44,14 @@
+ static MTLTextureDescriptor *
+ mtl_new_texture_descriptor(const struct kk_image_layout *layout)
+ {
++   kk_bridge_note(2, "mtl_new_texture_descriptor");
+    @autoreleasepool {
+       MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+       descriptor.textureType = (MTLTextureType)layout->type;
+       descriptor.pixelFormat = layout->format.mtl;
+-      descriptor.width = layout->width_px;
+-      descriptor.height = layout->height_px;
+-      descriptor.depth = layout->depth_px;
++      descriptor.width = MAX2(layout->width_px, 1u); /* Metal asserts on zero-sized textures */
++      descriptor.height = MAX2(layout->height_px, 1u); /* Metal asserts on zero-sized textures */
++      descriptor.depth = MAX2(layout->depth_px, 1u); /* Metal asserts on zero-sized textures */
+       descriptor.mipmapLevelCount = layout->levels;
+       descriptor.sampleCount = layout->sample_count_sa;
+       descriptor.arrayLength = layout->layers;
+@@ -66,6 +68,7 @@
+                                        const struct kk_image_layout *layout,
+                                        uint64_t offset)
+ {
++   kk_bridge_note(3, "mtl_new_texture_with_descriptor_linear");
+    @autoreleasepool {
+       id<MTLBuffer> buf = (id<MTLBuffer>)buffer;
+       MTLTextureDescriptor *descriptor = [mtl_new_texture_descriptor(layout) autorelease];
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-08 22:51:25.000000000 +0300
+@@ -4,7 +4,9 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
++#import <QuartzCore/QuartzCore.h>
+ #include "mtl_command_queue.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ #include <Metal/MTLDevice.h>
+ #include <Metal/MTLCommandQueue.h>
+@@ -13,6 +15,7 @@
+ mtl_commit_options *
+ mtl_new_commit_options(void)
+ {
++   kk_bridge_note(4, "mtl_new_commit_options");
+    @autoreleasepool {
+       return [[MTL4CommitOptions new] init];
+    }
+@@ -48,6 +51,7 @@
+ mtl_command_queue *
+ mtl_new_command_queue(mtl_device *device)
+ {
++   kk_bridge_note(5, "mtl_new_command_queue");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return [dev newMTL4CommandQueue];
+@@ -125,5 +129,7 @@
+    @autoreleasepool {
+       id<MTLDrawable> d = (id<MTLDrawable>)drawable;
+       [d present];
++      /* No run loop on this thread: commit pending layer updates now. */
++      [CATransaction flush];
+    }
+ }
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_compiler.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ #include "mtl_format.h"
+ 
+ #include <Metal/MTL4ComputePipeline.h>
+@@ -17,6 +18,7 @@
+ mtl_compiler *
+ mtl_new_compiler(mtl_device *device)
+ {
++   kk_bridge_note(6, "mtl_new_compiler");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+ 
+@@ -33,12 +35,26 @@
+    }
+ }
+ 
++
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: count shader/pipeline compiles */
++static _Atomic long kk_n_lib, kk_n_rp, kk_n_cp;
++static void kk_compile_note(_Atomic long *c, const char *what)
++{
++   long n = ++*c;
++   if (n % 250 == 0)
++      fprintf(stderr, "kkcomp: %s=%ld (libs=%ld render=%ld compute=%ld)\n", what, n,
++              (long)kk_n_lib, (long)kk_n_rp, (long)kk_n_cp);
++}
+ /* Library */
+ mtl_library *
+ mtl_new_library(mtl_compiler *compiler, const char *src,
+                 enum mtl_math_mode math_mode,
+                 enum mtl_math_floating_point_functions math_fp_fns)
+ {
++   kk_bridge_note(7, "mtl_new_library");
++   kk_compile_note(&kk_n_lib, "libs");
+    @autoreleasepool {
+       id<MTL4Compiler> comp = (id<MTL4Compiler>)compiler;
+       NSString *ns_src = [NSString stringWithCString:src encoding:NSASCIIStringEncoding];
+@@ -69,6 +85,7 @@
+ mtl_function_descriptor *
+ mtl_new_library_function_descriptor(mtl_library *library, const char *entry_point)
+ {
++   kk_bridge_note(8, "mtl_new_library_function_descriptor");
+    @autoreleasepool {
+       id<MTLLibrary> lib = (id<MTLLibrary>)library;
+       NSString *ns_entry_point = [NSString stringWithCString:entry_point encoding:NSASCIIStringEncoding];
+@@ -86,6 +103,8 @@
+                                mtl_function_descriptor *function,
+                                uint64_t max_total_threads_per_threadgroup)
+ {
++   kk_bridge_note(9, "mtl_new_compute_pipeline_state");
++   kk_compile_note(&kk_n_cp, "compute");
+    @autoreleasepool {
+       id<MTL4Compiler> comp = (id<MTL4Compiler>)compiler;
+ 
+@@ -109,6 +128,7 @@
+ mtl_render_pipeline_descriptor *
+ mtl_new_render_pipeline_descriptor()
+ {
++   kk_bridge_note(10, "mtl_new_render_pipeline_descriptor");
+    @autoreleasepool {
+       return [MTL4RenderPipelineDescriptor new];
+    }
+@@ -209,6 +229,8 @@
+ mtl_render_pipeline_state *
+ mtl_new_render_pipeline(mtl_compiler *compiler, mtl_render_pass_descriptor *descriptor)
+ {
++   kk_bridge_note(11, "mtl_new_render_pipeline");
++   kk_compile_note(&kk_n_rp, "render");
+    @autoreleasepool {
+       id<MTL4Compiler> comp = (id<MTL4Compiler>)compiler;
+       MTL4RenderPipelineDescriptor *desc = (MTL4RenderPipelineDescriptor *)descriptor;
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_device.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ /* TODO_KOSMICKRISP Remove */
+ #include "kk_image_layout.h"
+@@ -196,6 +197,7 @@
+ mtl_counter_heap *
+ mtl_new_timestamp_counter_heap(mtl_device *dev, uint32_t count)
+ {
++   kk_bridge_note(12, "mtl_new_timestamp_counter_heap");
+    @autoreleasepool {
+       id<MTLDevice> device = (id<MTLDevice>)dev;
+       MTL4CounterHeapDescriptor *desc =
+@@ -236,13 +238,14 @@
+ static MTLTextureDescriptor *
+ mtl_new_texture_descriptor(const struct kk_image_layout *layout)
+ {
++   kk_bridge_note(13, "mtl_new_texture_descriptor");
+    @autoreleasepool {
+       MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+       descriptor.textureType = (MTLTextureType)layout->type;
+       descriptor.pixelFormat = layout->format.mtl;
+-      descriptor.width = layout->width_px;
+-      descriptor.height = layout->height_px;
+-      descriptor.depth = layout->depth_px;
++      descriptor.width = MAX2(layout->width_px, 1u); /* Metal asserts on zero-sized textures */
++      descriptor.height = MAX2(layout->height_px, 1u); /* Metal asserts on zero-sized textures */
++      descriptor.depth = MAX2(layout->depth_px, 1u); /* Metal asserts on zero-sized textures */
+       descriptor.mipmapLevelCount = layout->levels;
+       descriptor.sampleCount = layout->sample_count_sa;
+       descriptor.arrayLength = layout->layers;
+@@ -326,6 +329,7 @@
+ mtl_new_buffer_with_bytes_no_copy(mtl_device *device, void* ptr,
+                                   uint64_t size_B)
+ {
++   kk_bridge_note(14, "mtl_new_buffer_with_bytes_no_copy");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return [dev newBufferWithBytesNoCopy:ptr length:size_B options:KK_MTL_RESOURCE_OPTIONS deallocator:nil];
+@@ -335,6 +339,7 @@
+ mtl_command_allocator *
+ mtl_new_command_allocator(mtl_device *device)
+ {
++   kk_bridge_note(15, "mtl_new_command_allocator");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return [dev newCommandAllocator];
+@@ -344,6 +349,7 @@
+ mtl_command_buffer *
+ mtl_new_command_buffer(mtl_device *device)
+ {
++   kk_bridge_note(16, "mtl_new_command_buffer");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return [dev newCommandBuffer];
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,9 @@
+  */
+ 
+ #include "mtl_encoder.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
++
++#include "util/macros.h"
+ 
+ #include <Metal/MTL4CommandBuffer.h>
+ #include <Metal/MTL4ComputeCommandEncoder.h>
+@@ -84,6 +87,7 @@
+ mtl_compute_encoder *
+ mtl_new_compute_command_encoder(mtl_command_buffer *cmd_buffer)
+ {
++   kk_bridge_note(17, "mtl_new_compute_command_encoder");
+    @autoreleasepool {
+       id<MTL4CommandBuffer> cmd_buf = (id<MTL4CommandBuffer>)cmd_buffer;
+       return [[cmd_buf computeCommandEncoder] retain];
+@@ -96,6 +100,10 @@
+                                mtl_buffer *dst_buf, size_t dst_offset,
+                                size_t size)
+ {
++   /* Empty copies are valid in Vulkan but crash the AGX driver. */
++   if (!size)
++      return;
++
+    @autoreleasepool {
+       id<MTL4ComputeCommandEncoder> enc = (id<MTL4ComputeCommandEncoder>)encoder;
+       id<MTLBuffer> mtl_src_buffer = (id<MTLBuffer>)src_buf;
+@@ -108,6 +116,9 @@
+ mtl_copy_from_buffer_to_texture(mtl_compute_encoder *encoder,
+                                 struct mtl_buffer_image_copy *data)
+ {
++   if (!data->image_size.x || !data->image_size.y || !data->image_size.z)
++      return;
++
+    @autoreleasepool {
+       const MTLSize size = MTLSizeMake(data->image_size.x, data->image_size.y, data->image_size.z);
+       const MTLOrigin origin = MTLOriginMake(data->image_origin.x, data->image_origin.y, data->image_origin.z);
+@@ -131,6 +142,9 @@
+ mtl_copy_from_texture_to_buffer(mtl_compute_encoder *encoder,
+                                 struct mtl_buffer_image_copy *data)
+ {
++   if (!data->image_size.x || !data->image_size.y || !data->image_size.z)
++      return;
++
+    @autoreleasepool {
+       const MTLSize size = MTLSizeMake(data->image_size.x, data->image_size.y, data->image_size.z);
+       const MTLOrigin origin = MTLOriginMake(data->image_origin.x, data->image_origin.y, data->image_origin.z);
+@@ -158,6 +172,9 @@
+                                  mtl_texture *dst_tex_handle, size_t dst_slice,
+                                  size_t dst_level, struct mtl_origin dst_origin)
+ {
++   if (!src_size.x || !src_size.y || !src_size.z)
++      return;
++
+    @autoreleasepool {
+       MTLOrigin mtl_src_origin = MTLOriginMake(src_origin.x, src_origin.y, src_origin.z);
+       MTLSize mtl_src_size = MTLSizeMake(src_size.x, src_size.y, src_size.z);
+@@ -203,11 +220,16 @@
+ mtl_dispatch_threads(mtl_compute_encoder *encoder,
+                      struct mtl_size grid_size, struct mtl_size local_size)
+ {
++   /* Vulkan allows empty dispatches; the AGX driver divides by zero on them. */
++   if (!grid_size.x || !grid_size.y || !grid_size.z)
++      return;
++
+    @autoreleasepool {
+       id<MTL4ComputeCommandEncoder> enc = (id<MTL4ComputeCommandEncoder>)encoder;
+       MTLSize thread_count = MTLSizeMake(grid_size.x, grid_size.y, grid_size.z);
+-      MTLSize threads_per_threadgroup = MTLSizeMake(local_size.x, local_size.y,
+-                                                    local_size.z);
++      MTLSize threads_per_threadgroup = MTLSizeMake(MAX2(local_size.x, 1u),
++                                                    MAX2(local_size.y, 1u),
++                                                    MAX2(local_size.z, 1u));
+ 
+       [enc dispatchThreads:thread_count threadsPerThreadgroup:threads_per_threadgroup];
+    }
+@@ -235,6 +257,7 @@
+ mtl_new_render_command_encoder_with_descriptor(
+    mtl_command_buffer *command_buffer, mtl_render_pass_descriptor *descriptor)
+ {
++   kk_bridge_note(18, "mtl_new_render_command_encoder_with_descriptor");
+    @autoreleasepool {
+       id<MTL4CommandBuffer> cmd = (id<MTL4CommandBuffer>)command_buffer;
+       MTL4RenderPassDescriptor *desc = (MTL4RenderPassDescriptor *)descriptor;
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_heap.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ /* TODO_KOSMICKRISP Remove */
+ #include "kk_private.h"
+@@ -17,6 +18,7 @@
+ mtl_new_heap(mtl_device *device, uint64_t size,
+              enum mtl_resource_options resource_options)
+ {
++   kk_bridge_note(19, "mtl_new_heap");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       MTLHeapDescriptor *descriptor = [[MTLHeapDescriptor new] autorelease];
+@@ -41,13 +43,14 @@
+ static MTLTextureDescriptor *
+ mtl_new_texture_descriptor(const struct kk_image_layout *layout)
+ {
++   kk_bridge_note(20, "mtl_new_texture_descriptor");
+    @autoreleasepool {
+       MTLTextureDescriptor *descriptor = [MTLTextureDescriptor new];
+       descriptor.textureType = (MTLTextureType)layout->type;
+       descriptor.pixelFormat = layout->format.mtl;
+-      descriptor.width = layout->width_px;
+-      descriptor.height = layout->height_px;
+-      descriptor.depth = layout->depth_px;
++      descriptor.width = MAX2(layout->width_px, 1u); /* Metal asserts on zero-sized textures */
++      descriptor.height = MAX2(layout->height_px, 1u); /* Metal asserts on zero-sized textures */
++      descriptor.depth = MAX2(layout->depth_px, 1u); /* Metal asserts on zero-sized textures */
+       descriptor.mipmapLevelCount = layout->levels;
+       descriptor.sampleCount = layout->sample_count_sa;
+       descriptor.arrayLength = layout->layers;
+@@ -63,6 +66,7 @@
+ mtl_buffer *
+ mtl_new_buffer_with_length(mtl_heap *heap, uint64_t size_B, uint64_t offset_B)
+ {
++   kk_bridge_note(21, "mtl_new_buffer_with_length");
+    @autoreleasepool {
+       id<MTLHeap> hp = (id<MTLHeap>)heap;
+       return (mtl_buffer *)[hp newBufferWithLength:size_B options:KK_MTL_RESOURCE_OPTIONS offset:offset_B];
+@@ -74,6 +78,7 @@
+                                 const struct kk_image_layout *layout,
+                                 uint64_t offset)
+ {
++   kk_bridge_note(22, "mtl_new_texture_with_descriptor");
+    @autoreleasepool {
+       id<MTLHeap> hp = (id<MTLHeap>)heap;
+       MTLTextureDescriptor *descriptor = [mtl_new_texture_descriptor(layout) autorelease];
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_render_state.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ #include "mtl_format.h"
+ 
+@@ -21,6 +22,7 @@
+ mtl_render_pass_descriptor *
+ mtl_new_render_pass_descriptor(void)
+ {
++   kk_bridge_note(23, "mtl_new_render_pass_descriptor");
+    @autoreleasepool {
+       return [[MTL4RenderPassDescriptor new] init];
+    }
+@@ -215,6 +217,7 @@
+ mtl_stencil_descriptor *
+ mtl_new_stencil_descriptor()
+ {
++   kk_bridge_note(24, "mtl_new_stencil_descriptor");
+    @autoreleasepool {
+       return [[MTLStencilDescriptor new] init];
+    }
+@@ -305,6 +308,7 @@
+ mtl_depth_stencil_descriptor *
+ mtl_new_depth_stencil_descriptor()
+ {
++   kk_bridge_note(25, "mtl_new_depth_stencil_descriptor");
+    @autoreleasepool {
+       return [[MTLDepthStencilDescriptor new] init];
+    }
+@@ -349,6 +353,7 @@
+ mtl_depth_stencil_state *
+ mtl_new_depth_stencil_state(mtl_device *device, mtl_depth_stencil_descriptor *descriptor)
+ {
++   kk_bridge_note(26, "mtl_new_depth_stencil_state");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       MTLDepthStencilDescriptor *desc = (MTLDepthStencilDescriptor *)descriptor;
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_residency_set.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ #include <Metal/MTLDevice.h>
+ #include <Metal/MTLResidencySet.h>
+@@ -12,6 +13,7 @@
+ mtl_residency_set *
+ mtl_new_residency_set(mtl_device *device)
+ {
++   kk_bridge_note(27, "mtl_new_residency_set");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       MTLResidencySetDescriptor *setDescriptor = [[[MTLResidencySetDescriptor alloc] init] autorelease];
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,12 +5,14 @@
+  */
+ 
+ #include "mtl_sampler.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ #include <Metal/MTLSampler.h>
+ 
+ mtl_sampler_descriptor *
+ mtl_new_sampler_descriptor()
+ {
++   kk_bridge_note(28, "mtl_new_sampler_descriptor");
+    @autoreleasepool {
+       MTLSamplerDescriptor *descriptor = [MTLSamplerDescriptor new];
+       /* Set common variables we don't expose */
+@@ -101,6 +103,7 @@
+ mtl_sampler *
+ mtl_new_sampler(mtl_device *device, mtl_sampler_descriptor *descriptor)
+ {
++   kk_bridge_note(29, "mtl_new_sampler");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       MTLSamplerDescriptor *desc = (MTLSamplerDescriptor *)descriptor;
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_sync.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ #include <Metal/MTLEvent.h>
+ 
+@@ -12,6 +13,7 @@
+ mtl_fence *
+ mtl_new_fence(mtl_device *device)
+ {
++   kk_bridge_note(30, "mtl_new_fence");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return (mtl_fence *)[dev newFence];
+@@ -22,6 +24,7 @@
+ mtl_event *
+ mtl_new_event(mtl_device *device)
+ {
++   kk_bridge_note(31, "mtl_new_event");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return [dev newEvent];
+@@ -32,6 +35,7 @@
+ mtl_shared_event *
+ mtl_new_shared_event(mtl_device *device)
+ {
++   kk_bridge_note(32, "mtl_new_shared_event");
+    @autoreleasepool {
+       id<MTLDevice> dev = (id<MTLDevice>)device;
+       return [dev newSharedEvent];
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-08 22:51:25.000000000 +0300
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include "mtl_texture.h"
++void kk_bridge_note(int id, const char *name); /* TEMP diagnostics */
+ 
+ /* TODO_LUNARG Remove */
+ #include "kk_image_layout.h"
+@@ -67,6 +68,7 @@
+ mtl_texture *
+ mtl_new_texture_view_with(mtl_texture *texture, const struct kk_view_layout *layout)
+ {
++   kk_bridge_note(33, "mtl_new_texture_view_with");
+    @autoreleasepool {
+       id<MTLTexture> tex = (id<MTLTexture>)texture;
+       MTLTextureType type = mtl_texture_view_type(layout->view_type, layout->sample_count_sa);
+@@ -83,6 +85,7 @@
+ mtl_texture *
+ mtl_new_texture_view_with_no_swizzle(mtl_texture *texture, const struct kk_view_layout *layout)
+ {
++   kk_bridge_note(34, "mtl_new_texture_view_with_no_swizzle");
+    @autoreleasepool {
+       id<MTLTexture> tex = (id<MTLTexture>)texture;
+       MTLTextureType type = mtl_texture_view_type(layout->view_type, layout->sample_count_sa);
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_entrypoints.cpython-312.pyc and mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_entrypoints.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_extensions.cpython-312.pyc and mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_extensions.cpython-312.pyc differ
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-08 22:39:45.000000000 +0300
+@@ -12,6 +12,32 @@
+ 
+ #include "util/u_memory.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: count BO allocations per call site */
++#define KK_BO_SITES 64
++static struct { void *site; _Atomic long allocs, live, bytes; } kk_bo_sites[KK_BO_SITES];
++static _Atomic long kk_bo_total;
++static void kk_bo_note(void *site, long bytes, int delta)
++{
++   for (int i = 0; i < KK_BO_SITES; i++) {
++      void *expected = NULL;
++      if (kk_bo_sites[i].site == site ||
++          atomic_compare_exchange_strong((_Atomic(void *) *)&kk_bo_sites[i].site, &expected, site)) {
++         if (delta > 0) kk_bo_sites[i].allocs++;
++         kk_bo_sites[i].live += delta;
++         kk_bo_sites[i].bytes += delta * bytes;
++         break;
++      }
++   }
++   if (delta > 0 && (++kk_bo_total % 5000) == 0) {
++      for (int i = 0; i < KK_BO_SITES && kk_bo_sites[i].site; i++)
++         if (kk_bo_sites[i].live > 200)
++            fprintf(stderr, "kkbo: site=%p allocs=%ld live=%ld bytes=%ldMB\n", kk_bo_sites[i].site,
++                    (long)kk_bo_sites[i].allocs, (long)kk_bo_sites[i].live, (long)kk_bo_sites[i].bytes >> 20);
++   }
++}
++
+ VkResult
+ kk_alloc_bo(struct kk_device *dev, struct vk_object_base *log_obj,
+             uint64_t size_B, uint64_t align_B, struct kk_bo **bo_out)
+@@ -60,6 +86,8 @@
+ 
+    kk_device_add_heap_to_residency_set(dev, handle);
+ 
++   bo->alloc_site = __builtin_return_address(0);
++   kk_bo_note(bo->alloc_site, size_B, 1);
+    *bo_out = bo;
+    return result;
+ 
+@@ -74,6 +102,8 @@
+ void
+ kk_destroy_bo(struct kk_device *dev, struct kk_bo *bo)
+ {
++   if (bo->alloc_site)
++      kk_bo_note(bo->alloc_site, bo->size_B, -1);
+    /* We may only have a mapped buffer, for example if the memory was imported
+     * from a host pointer */
+    if (bo->mtl_handle)
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-08 22:39:45.000000000 +0300
+@@ -22,6 +22,7 @@
+    uint64_t size_B;
+    uint64_t gpu; // GPU address
+    void *cpu;    // CPU address
++   void *alloc_site; /* TEMP diagnostics */
+ };
+ 
+ struct kk_ptr {
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-08 22:45:22.000000000 +0300
+@@ -20,6 +20,11 @@
+ 
+ #include "vk_format.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: live object counts */
++static _Atomic long kk_diag_created_BufferView, kk_diag_live_BufferView;
++
+ VkFormatFeatureFlags2
+ kk_get_buffer_format_features(struct kk_physical_device *pdev,
+                               VkFormat vk_format)
+@@ -57,6 +62,9 @@
+                     const VkAllocationCallbacks *pAllocator,
+                     VkBufferView *pBufferView)
+ {
++   if ((++kk_diag_created_BufferView % 2000) == 0)
++      fprintf(stderr, "kkobj: BufferView created=%ld live=%ld\n", (long)kk_diag_created_BufferView, (long)kk_diag_live_BufferView);
++   kk_diag_live_BufferView++;
+    VK_FROM_HANDLE(kk_device, dev, _device);
+    struct kk_buffer_view *view =
+       vk_buffer_view_create(&dev->vk, pCreateInfo, pAllocator, sizeof(*view));
+@@ -118,6 +126,7 @@
+ kk_DestroyBufferView(VkDevice _device, VkBufferView bufferView,
+                      const VkAllocationCallbacks *pAllocator)
+ {
++   kk_diag_live_BufferView--;
+    VK_FROM_HANDLE(kk_device, dev, _device);
+    VK_FROM_HANDLE(kk_buffer_view, view, bufferView);
+ 
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-08 23:51:42.000000000 +0300
+@@ -13,6 +13,11 @@
+ 
+ #include "kosmickrisp/bridge/mtl_bridge.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: live VkBuffers and buffers bound to memory */
++static _Atomic long kk_diag_buf_created, kk_diag_buf_live, kk_diag_buf_bound_live;
++
+ static uint64_t
+ kk_get_buffer_alignment(const struct kk_physical_device *pdev, uint64_t size,
+                         VkBufferUsageFlags2KHR usage_flags,
+@@ -34,6 +39,10 @@
+ kk_CreateBuffer(VkDevice device, const VkBufferCreateInfo *pCreateInfo,
+                 const VkAllocationCallbacks *pAllocator, VkBuffer *pBuffer)
+ {
++   if ((++kk_diag_buf_created % 5000) == 0)
++      fprintf(stderr, "kkbuf: created=%ld live=%ld bound_live=%ld\n", (long)kk_diag_buf_created,
++              (long)kk_diag_buf_live, (long)kk_diag_buf_bound_live);
++   kk_diag_buf_live++;
+    VK_FROM_HANDLE(kk_device, dev, device);
+    struct kk_physical_device *pdev = kk_device_physical(dev);
+    struct kk_buffer *buffer;
+@@ -55,14 +64,17 @@
+ kk_DestroyBuffer(VkDevice device, VkBuffer _buffer,
+                  const VkAllocationCallbacks *pAllocator)
+ {
++   kk_diag_buf_live--;
+    VK_FROM_HANDLE(kk_device, dev, device);
+    VK_FROM_HANDLE(kk_buffer, buffer, _buffer);
+ 
+    if (!buffer)
+       return;
+ 
+-   if (buffer->mtl_handle)
++   if (buffer->mtl_handle) {
++      kk_diag_buf_bound_live--;
+       mtl_release(buffer->mtl_handle);
++   }
+ 
+    vk_buffer_destroy(&dev->vk, pAllocator, &buffer->vk);
+ }
+@@ -156,6 +168,7 @@
+    VK_FROM_HANDLE(kk_buffer, buffer, info->buffer);
+ 
+    if (mem->bo->mtl_handle) {
++      kk_diag_buf_bound_live++;
+       buffer->mtl_handle = mtl_new_buffer_with_length(
+          mem->bo->mtl_handle, buffer->vk.size, info->memoryOffset);
+       buffer->offset = 0u;
+@@ -165,6 +178,7 @@
+       buffer->mtl_handle = mem->bo->map;
+       buffer->offset = info->memoryOffset;
+       mtl_retain(buffer->mtl_handle);
++      kk_diag_buf_bound_live++;
+    }
+ 
+    buffer->vk.device_address =
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-08 22:47:33.000000000 +0300
+@@ -21,6 +21,11 @@
+ #include <inttypes.h>
+ #include <sys/mman.h>
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: memory allocation counts */
++static _Atomic long kk_diag_mem_alloc, kk_diag_mem_live, kk_diag_host_alloc, kk_diag_host_live, kk_diag_host_bytes;
++
+ /* Supports mtlheap only */
+ const VkExternalMemoryProperties kk_mtlheap_mem_props = {
+    .externalMemoryFeatures = VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT |
+@@ -110,6 +115,12 @@
+ 
+    bool import_metal = metal_info && metal_info->handleType;
+    bool import_host = host_info && host_info->handleType;
++   if (import_host) { kk_diag_host_alloc++; kk_diag_host_live++; kk_diag_host_bytes += mem->vk.size; }
++   if ((++kk_diag_mem_alloc % 1000) == 0)
++      fprintf(stderr, "kkmem: allocs=%ld live=%ld host_allocs=%ld host_live=%ld host_live_MB=%ld\n",
++              (long)kk_diag_mem_alloc, (long)kk_diag_mem_live, (long)kk_diag_host_alloc,
++              (long)kk_diag_host_live, (long)(kk_diag_host_bytes >> 20));
++   kk_diag_mem_live++;
+ 
+    if (import_metal || import_host) {
+       mem->bo = CALLOC_STRUCT(kk_bo);
+@@ -166,6 +177,8 @@
+    if (!mem)
+       return;
+ 
++   kk_diag_mem_live--;
++   if (mem->vk.host_ptr) { kk_diag_host_live--; kk_diag_host_bytes -= mem->vk.size; }
+    kk_destroy_bo(dev, mem->bo);
+ 
+    vk_device_memory_destroy(&dev->vk, pAllocator, &mem->vk);
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-08 22:45:22.000000000 +0300
+@@ -18,6 +18,11 @@
+ 
+ #include "vk_format.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: live object counts */
++static _Atomic long kk_diag_created_ImageView, kk_diag_live_ImageView;
++
+ static enum pipe_swizzle
+ vk_swizzle_to_pipe(VkComponentSwizzle swizzle)
+ {
+@@ -261,6 +266,9 @@
+ kk_CreateImageView(VkDevice _device, const VkImageViewCreateInfo *pCreateInfo,
+                    const VkAllocationCallbacks *pAllocator, VkImageView *pView)
+ {
++   if ((++kk_diag_created_ImageView % 2000) == 0)
++      fprintf(stderr, "kkobj: ImageView created=%ld live=%ld\n", (long)kk_diag_created_ImageView, (long)kk_diag_live_ImageView);
++   kk_diag_live_ImageView++;
+    VK_FROM_HANDLE(kk_device, dev, _device);
+    struct kk_image_view *view;
+    VkResult result;
+@@ -285,6 +293,7 @@
+ kk_DestroyImageView(VkDevice _device, VkImageView imageView,
+                     const VkAllocationCallbacks *pAllocator)
+ {
++   kk_diag_live_ImageView--;
+    VK_FROM_HANDLE(kk_device, dev, _device);
+    VK_FROM_HANDLE(kk_image_view, view, imageView);
+ 
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-08 22:45:22.000000000 +0300
+@@ -21,6 +21,11 @@
+ #include "vk_format.h"
+ #include "wsi_common_private.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: live object counts */
++static _Atomic long kk_diag_created_Image, kk_diag_live_Image;
++
+ static VkFormatFeatureFlags2
+ kk_get_image_plane_format_features(struct kk_physical_device *pdev,
+                                    VkFormat vk_format, VkImageTiling tiling,
+@@ -607,6 +612,9 @@
+ kk_CreateImage(VkDevice _device, const VkImageCreateInfo *pCreateInfo,
+                const VkAllocationCallbacks *pAllocator, VkImage *pImage)
+ {
++   if ((++kk_diag_created_Image % 2000) == 0)
++      fprintf(stderr, "kkobj: Image created=%ld live=%ld\n", (long)kk_diag_created_Image, (long)kk_diag_live_Image);
++   kk_diag_live_Image++;
+    VK_FROM_HANDLE(kk_device, dev, _device);
+    struct kk_physical_device *pdev = kk_device_physical(dev);
+    struct kk_image *image;
+@@ -636,6 +644,7 @@
+ kk_DestroyImage(VkDevice device, VkImage _image,
+                 const VkAllocationCallbacks *pAllocator)
+ {
++   kk_diag_live_Image--;
+    VK_FROM_HANDLE(kk_device, dev, device);
+    VK_FROM_HANDLE(kk_image, image, _image);
+ 
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-08 23:43:16.000000000 +0300
+@@ -19,6 +19,55 @@
+ 
+ #include "kosmickrisp/bridge/mtl_bridge.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* Occlusion slots are a device-wide table of KK_MAX_OCCLUSION_QUERIES entries
++ * (Metal caps visibility result offsets at 256KB). Instead of failing pool
++ * creation once it is full, alias the overflow to one shared spare slot: those
++ * queries return approximate results rather than crashing the app. */
++
++/* Metal does not seem to give back counter heap memory promptly, and apps
++ * (zink) create and destroy timestamp pools constantly, so recycle heaps. */
++#include "util/simple_mtx.h"
++#define KK_TS_HEAP_CACHE 256
++static struct { mtl_counter_heap *heap; uint32_t count; } kk_ts_heap_cache[KK_TS_HEAP_CACHE];
++static unsigned kk_ts_heap_cache_n;
++static simple_mtx_t kk_ts_heap_cache_mtx = SIMPLE_MTX_INITIALIZER;
++
++static mtl_counter_heap *
++kk_ts_heap_get(struct kk_device *dev, uint32_t count)
++{
++   simple_mtx_lock(&kk_ts_heap_cache_mtx);
++   for (unsigned i = 0; i < kk_ts_heap_cache_n; i++) {
++      if (kk_ts_heap_cache[i].count == count) {
++         mtl_counter_heap *heap = kk_ts_heap_cache[i].heap;
++         kk_ts_heap_cache[i] = kk_ts_heap_cache[--kk_ts_heap_cache_n];
++         simple_mtx_unlock(&kk_ts_heap_cache_mtx);
++         return heap;
++      }
++   }
++   simple_mtx_unlock(&kk_ts_heap_cache_mtx);
++   return mtl_new_timestamp_counter_heap(dev->mtl_handle, count);
++}
++
++static void
++kk_ts_heap_put(mtl_counter_heap *heap, uint32_t count)
++{
++   simple_mtx_lock(&kk_ts_heap_cache_mtx);
++   if (kk_ts_heap_cache_n < KK_TS_HEAP_CACHE) {
++      kk_ts_heap_cache[kk_ts_heap_cache_n].heap = heap;
++      kk_ts_heap_cache[kk_ts_heap_cache_n].count = count;
++      kk_ts_heap_cache_n++;
++      heap = NULL;
++   }
++   simple_mtx_unlock(&kk_ts_heap_cache_mtx);
++   if (heap)
++      mtl_release(heap);
++}
++
++static _Atomic long kk_oq_live_pools, kk_oq_live_slots, kk_oq_overflows;
++static uint32_t kk_oq_spare_index = UINT32_MAX;
++
+ struct kk_query_report {
+    uint64_t value;
+ };
+@@ -154,37 +203,60 @@
+ 
+    result = kk_alloc_bo(dev, &dev->vk.base, bo_size, 8, &pool->bo);
+    if (result != VK_SUCCESS) {
++      fprintf(stderr, "kkoq: pool bo alloc failed type=%d count=%u size=%u\n",
++              pool->vk.query_type, pool->vk.query_count, bo_size);
+       kk_DestroyQueryPool(device, kk_query_pool_to_handle(pool), pAllocator);
+       return vk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+    }
+ 
+    uint16_t *remap_index = kk_pool_index_ptr(pool);
+    if (kk_pool_is_oq(pool)) {
++      /* Reserve the shared spare slot up front, while the table has room. */
++      if (kk_oq_spare_index == UINT32_MAX) {
++         unsigned spare;
++         if (kk_query_table_add(dev, &dev->occlusion_queries, 0, &spare) == VK_SUCCESS)
++            kk_oq_spare_index = spare;
++      }
+ 
+       for (unsigned i = 0; i < pool->vk.query_count; ++i) {
+          uint64_t zero = 0;
+          unsigned index;
+ 
+-         VkResult result =
+-            kk_query_table_add(dev, &dev->occlusion_queries, zero, &index);
++         VkResult result = VK_ERROR_OUT_OF_DEVICE_MEMORY;
++         if (pool->oq.queries == i)
++            result = kk_query_table_add(dev, &dev->occlusion_queries, zero, &index);
+ 
+          if (result != VK_SUCCESS) {
+-            kk_DestroyQueryPool(device, kk_query_pool_to_handle(pool),
+-                                pAllocator);
+-            return vk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
++            if (kk_oq_spare_index == UINT32_MAX) {
++               fprintf(stderr, "kkoq: no spare occlusion slot available\n");
++               kk_DestroyQueryPool(device, kk_query_pool_to_handle(pool),
++                                   pAllocator);
++               return vk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
++            }
++            if ((kk_oq_overflows++ % 4096) == 0)
++               fprintf(stderr, "kkoq: occlusion slots exhausted (live pools=%ld slots=%ld), aliasing to spare slot\n",
++                       (long)kk_oq_live_pools, (long)kk_oq_live_slots);
++            /* Entries past oq.queries are not owned and never removed. */
++            remap_index[i] = kk_oq_spare_index;
++            continue;
+          }
+ 
+          /* We increment as we go so we can clean up properly if we run out */
+          remap_index[pool->oq.queries++] = index;
+       }
++      kk_oq_live_pools++;
++      kk_oq_live_slots += pool->oq.queries;
+    } else if (kk_pool_is_ts(pool)) {
+       /* Timestamps are sampled into a Metal counter heap (one entry per query)
+        * and resolved into `bo` after the GPU writes them. */
+-      pool->ts.heap =
+-         mtl_new_timestamp_counter_heap(dev->mtl_handle, pool->vk.query_count);
++      pool->ts.heap = kk_ts_heap_get(dev, pool->vk.query_count);
+       if (pool->ts.heap == NULL) {
+-         kk_DestroyQueryPool(device, kk_query_pool_to_handle(pool), pAllocator);
+-         return vk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
++         static _Atomic long ts_fail;
++         if ((ts_fail++ % 256) == 0)
++            fprintf(stderr, "kkoq: timestamp counter heap creation failed count=%u (failures=%ld)\n",
++                    pool->vk.query_count, (long)ts_fail);
++         /* Keep going without a counter heap: timestamps become available
++          * with no real value instead of failing pool creation. */
+       }
+       pool->ts.stage_map = UTIL_DYNARRAY_INIT;
+ 
+@@ -217,9 +289,13 @@
+       for (unsigned i = 0; i < pool->oq.queries; ++i) {
+          kk_query_table_remove(dev, &dev->occlusion_queries, remap_index[i]);
+       }
++      if (pool->bo) {
++         kk_oq_live_pools--;
++         kk_oq_live_slots -= pool->oq.queries;
++      }
+    } else if (kk_pool_is_ts(pool)) {
+       if (pool->ts.heap)
+-         mtl_release(pool->ts.heap);
++         kk_ts_heap_put(pool->ts.heap, pool->vk.query_count);
+       util_dynarray_fini(&pool->ts.stage_map);
+    }
+ 
+@@ -340,7 +416,7 @@
+    VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
+    VK_FROM_HANDLE(kk_query_pool, pool, queryPool);
+    struct kk_device *dev = kk_cmd_buffer_device(cmd);
+-   assert(kk_pool_is_ts(pool) && pool->ts.heap);
++   assert(kk_pool_is_ts(pool));
+ 
+    uint32_t count = kk_mv_query_count(cmd);
+    enum mtl_render_stages mtl_stage =
+@@ -362,6 +438,8 @@
+          libkk_write_u32(cmd, kk_grid_1d(1), false, addr, true);
+          addr += sizeof(uint32_t);
+       }
++      if (!pool->ts.heap)
++         return;
+ 
+       /* If we've already issued a timestamp write for a render stage, reuse it
+        * because reissuing might return a 0 timestamp
+@@ -377,6 +455,14 @@
+       struct kk_ts_stage_entry entry = {.stage = mtl_stage,
+                                         .pass = cmd->gfx.encoder,
+                                         .index = query};
++      /* Entries are only useful for the encoder being recorded; drop stale
++       * ones so the lookup above does not grow without bound over a session. */
++      util_dynarray_foreach(&pool->ts.stage_map, struct kk_ts_stage_entry, e) {
++         if (e->pass != cmd->gfx.encoder) {
++            util_dynarray_clear(&pool->ts.stage_map);
++            break;
++         }
++      }
+       util_dynarray_append(&pool->ts.stage_map, entry);
+ 
+       mtl_render_write_timestamp(cmd->gfx.encoder, mtl_stage, pool->ts.heap,
+@@ -401,6 +487,8 @@
+          addr += sizeof(uint32_t);
+       }
+ 
++      if (!pool->ts.heap)
++         return;
+       mtl_compute_write_timestamp(es->encoder, pool->ts.heap, query);
+       util_dynarray_append(&es->ts_resolves, resolve);
+    }
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-08 22:54:16.000000000 +0300
+@@ -83,8 +83,6 @@
+ 
+       /* Metal complains with empty submissions. */
+       if (count > 0u) {
+-         mtl_commit_options_add_feedback_handler(queue->commit_options,
+-                                                 commit_callback, dev);
+          mtl_command_queue_commit(queue->mtl_handle, cmds, count,
+                                   queue->commit_options);
+       }
+@@ -145,6 +143,10 @@
+    mtl_command_queue_add_residency_set(queue->mtl_handle,
+                                        dev->residency_set.handle);
+    queue->commit_options = mtl_new_commit_options();
++   /* addFeedbackHandler appends, so register it once instead of on every
++    * submit, which piled up handlers and kept every command buffer alive. */
++   mtl_commit_options_add_feedback_handler(queue->commit_options,
++                                           commit_callback, dev);
+ 
+    queue->vk.driver_submit = kk_queue_submit;
+ 
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-08 22:45:22.000000000 +0300
+@@ -20,6 +20,11 @@
+ #include "util/format/format_utils.h"
+ #include "util/format_srgb.h"
+ 
++#include <stdio.h>
++#include <stdatomic.h>
++/* TEMP diagnostics: live object counts */
++static _Atomic long kk_diag_created_Sampler, kk_diag_live_Sampler;
++
+ static bool
+ uses_border(const VkSamplerCreateInfo *info)
+ {
+@@ -135,6 +140,9 @@
+ kk_CreateSampler(VkDevice device, const VkSamplerCreateInfo *pCreateInfo,
+                  const VkAllocationCallbacks *pAllocator, VkSampler *pSampler)
+ {
++   if ((++kk_diag_created_Sampler % 2000) == 0)
++      fprintf(stderr, "kkobj: Sampler created=%ld live=%ld\n", (long)kk_diag_created_Sampler, (long)kk_diag_live_Sampler);
++   kk_diag_live_Sampler++;
+    VK_FROM_HANDLE(kk_device, dev, device);
+    VkResult result = VK_SUCCESS;
+    struct kk_sampler *sampler;
+@@ -218,6 +226,7 @@
+ kk_DestroySampler(VkDevice device, VkSampler _sampler,
+                   const VkAllocationCallbacks *pAllocator)
+ {
++   kk_diag_live_Sampler--;
+    VK_FROM_HANDLE(kk_device, dev, device);
+    VK_FROM_HANDLE(kk_sampler, sampler, _sampler);
+ 
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/apiexec.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/apiexec.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/gl_XML.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/gl_XML.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/glX_XML.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/glX_XML.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/license.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/license.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/marshal_XML.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/marshal_XML.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/static_data.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/static_data.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/typeexpr.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/typeexpr.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/main/__pycache__/format_parser.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/main/__pycache__/format_parser.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/main/__pycache__/get_hash_params.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/main/__pycache__/get_hash_params.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-312.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-314.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-312.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-314.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/perf/__pycache__/u_trace.cpython-314.pyc and mesa-mesa-26.2.4/src/util/perf/__pycache__/u_trace.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-312.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-314.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-312.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-312.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-314.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-314.pyc differ
+Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_physical_device_features_gen.cpython-312.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_physical_device_features_gen.cpython-312.pyc differ
+diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m
+--- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-08 22:17:42.000000000 +0300
+@@ -1,3 +1,4 @@
++#include <stdio.h>
+ /*
+  * Copyright 2024 Autodesk, Inc.
+  *
+@@ -7,6 +8,7 @@
+ #include "wsi_common_metal_layer.h"
+ 
+ #import <QuartzCore/CAMetalLayer.h>
++#import <QuartzCore/CATransaction.h>
+ #import <Metal/Metal.h>
+ 
+ void
+@@ -137,7 +139,11 @@
+ wsi_metal_layer_set_immediate(const CAMetalLayer *metal_layer,
+                               bool enable_immediate)
+ {
++   [CATransaction begin];
++   [CATransaction setDisableActions:YES];
+    metal_layer.displaySyncEnabled = !enable_immediate;
++   [CATransaction commit];
++   [CATransaction flush];
+ }
+ 
+ VkResult
+@@ -158,6 +164,11 @@
+       if (result != VK_SUCCESS)
+          return result;
+ 
++      /* The render thread has no run loop to commit implicit transactions,
++       * so layer changes would only land on the next main-thread event. */
++      [CATransaction begin];
++      [CATransaction setDisableActions:YES];
++
+       if (metal_layer.device == nil)
+          metal_layer.device = metal_layer.preferredDevice;
+ 
+@@ -176,6 +187,9 @@
+       metal_layer.wantsExtendedDynamicRangeContent = wants_edr;
+       /* Needs release: https://github.com/KhronosGroup/MoltenVK/issues/940 */
+       CGColorSpaceRelease(cg_color_space);
++
++      [CATransaction commit];
++      [CATransaction flush];
+    }
+ 
+    return VK_SUCCESS;
+@@ -271,6 +285,15 @@
+ {
+    @autoreleasepool {
+       id<CAMetalDrawable> drawable = [metal_layer nextDrawable];
++      /* TEMP diagnostics for Wine/CrossOver presentation issues */
++      static unsigned ok_count, nil_count;
++      if (drawable) ok_count++; else nil_count++;
++      if (((ok_count + nil_count) % 120) == 1 || !drawable)
++         fprintf(stderr, "kkwsi: acquire ok=%u nil=%u layer=%p hidden=%d super=%p bounds=%.0fx%.0f drawable=%.0fx%.0f scale=%.1f pwt=%d sync=%d opaque=%d max=%lu\n",
++                 ok_count, nil_count, metal_layer, metal_layer.hidden,
++                 metal_layer.superlayer, metal_layer.bounds.size.width,
++                 metal_layer.bounds.size.height, metal_layer.drawableSize.width,
++                 metal_layer.drawableSize.height, metal_layer.contentsScale, metal_layer.presentsWithTransaction, metal_layer.displaySyncEnabled, metal_layer.opaque, (unsigned long)metal_layer.maximumDrawableCount);
+       return (CAMetalDrawable *)[drawable retain];
+    }
+ }

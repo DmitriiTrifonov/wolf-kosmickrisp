@@ -23,3 +23,6 @@ venv-x64/
 build-kk-x64.old/
 mtl4test/*-x86_64
 mtl4test/*-arm64
+mtl4test/fb
+mtl4test/fb2*
+mtl4test/fb3*

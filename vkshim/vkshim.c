@@ -36,6 +36,30 @@ static PFN_gipa real_gipa;
 static int using_kk;
 static pthread_once_t once = PTHREAD_ONCE_INIT;
 
+/* The flag file may hold KEY=VALUE lines (# starts a comment). They are put
+ * into the environment before KosmicKrisp loads, since NotProton only passes a
+ * few prefixes (not MESA_*) through to the Wine process. */
+static void load_env_file(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        char *p = line;
+        while (*p == ' ' || *p == '\t')
+            p++;
+        char *eq = strchr(p, '=');
+        if (!*p || *p == '#' || !eq || eq == p)
+            continue;
+        *eq = 0;
+        setenv(p, eq + 1, 1);
+        fprintf(stderr, "vkshim: env %s=%s\n", p, eq + 1);
+    }
+    fclose(f);
+}
+
 static int want_kosmickrisp(void)
 {
     const char *env = getenv("NOTPROTON_VK_DRIVER");
@@ -47,7 +71,10 @@ static int want_kosmickrisp(void)
         return 0;
     char flag[PATH_MAX];
     snprintf(flag, sizeof(flag), "%s/../notproton-kosmickrisp", prefix);
-    return access(flag, F_OK) == 0;
+    if (access(flag, F_OK) != 0)
+        return 0;
+    load_env_file(flag);
+    return 1;
 }
 
 static void init(void)

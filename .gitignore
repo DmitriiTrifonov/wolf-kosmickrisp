@@ -19,3 +19,7 @@
 /mtl4test/lim
 /mtl4test/lt
 /gltest/*.txt
+venv-x64/
+build-kk-x64.old/
+mtl4test/*-x86_64
+mtl4test/*-arm64

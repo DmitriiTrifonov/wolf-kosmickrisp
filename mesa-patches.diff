@@ -1,14 +1,5 @@
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/__pycache__/builtin_types.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_algebraic.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_intrinsics.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-312.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-314.pyc and mesa-mesa-26.2.4/src/compiler/nir/__pycache__/nir_opcodes.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/gallium/drivers/zink/__pycache__/zink_extensions.cpython-314.pyc and mesa-mesa-26.2.4/src/gallium/drivers/zink/__pycache__/zink_extensions.cpython-314.pyc differ
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-08 23:36:18.000000000 +0300
 @@ -10,7 +10,7 @@
  #include "util/u_inlines.h"
@@ -36,8 +27,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     util_dynarray_clear(&query->starts);
     query->start_offset = 0;
  
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -63,10 +54,19 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTL4ArgumentTableDescriptor *desc = (MTL4ArgumentTableDescriptor *)descriptor;
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-08 23:01:09.000000000 +0300
-@@ -48,3 +48,24 @@
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-09 11:00:22.992443486 +0300
+@@ -31,6 +31,8 @@
+    }
+ }
+ 
++static void kk_leak_track(void *obj) __attribute__((unused)); /* TEMP diagnostics */
++
+ void *
+ mtl_retain(void *handle)
+ {
+@@ -48,3 +50,94 @@
        [obj release];
     }
  }
@@ -91,8 +91,78 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
 +      fprintf(stderr, "%s\n", line);
 +   }
 +}
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-01 17:39:53.000000000 +0300
++
++/* TEMP diagnostics: track every Metal object KosmicKrisp releases (via
++ * mtl_release) and whether Metal actually deallocates it (-dealloc hooked per
++ * class with a block IMP). Objects still alive after our release are retained
++ * by someone else. */
++#include <objc/runtime.h>
++#include <pthread.h>
++#define LT_CAP (1u << 22)
++#define LT_TOMB ((void *)1)
++#define LT_KINDS 64
++static pthread_mutex_t lt_mtx = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
++static struct { void *p; int kind; } lt[LT_CAP];
++static Class lt_cls[LT_KINDS];
++static int lt_nkinds;
++static long lt_released[LT_KINDS], lt_dealloced[LT_KINDS], lt_alive[LT_KINDS];
++static long lt_calls;
++
++static uint32_t lt_hash(void *p) { return (uint32_t)((((uintptr_t)p >> 4) * 0x9E3779B97F4A7C15ull) >> 40) & (LT_CAP - 1); }
++
++static void lt_note_dealloc(void *self)
++{
++   pthread_mutex_lock(&lt_mtx);
++   for (uint32_t h = lt_hash(self), n = 0; n < LT_CAP && lt[h].p; h = (h + 1) & (LT_CAP - 1), n++) {
++      if (lt[h].p == self) {
++         int k = lt[h].kind;
++         lt_dealloced[k]++; lt_alive[k]--;
++         lt[h].p = LT_TOMB;
++         break;
++      }
++   }
++   pthread_mutex_unlock(&lt_mtx);
++}
++
++static int lt_kind(Class c)
++{
++   for (int i = 0; i < lt_nkinds; i++)
++      if (lt_cls[i] == c) return i;
++   if (lt_nkinds == LT_KINDS) return -1;
++   Method m = class_getInstanceMethod(c, @selector(dealloc));
++   IMP orig = method_getImplementation(m);
++   SEL sel = @selector(dealloc);
++   IMP hook = imp_implementationWithBlock(^(id self) {
++      lt_note_dealloc((void *)self);
++      ((void (*)(id, SEL))orig)(self, sel);
++   });
++   class_replaceMethod(c, sel, hook, method_getTypeEncoding(m));
++   lt_cls[lt_nkinds] = c;
++   return lt_nkinds++;
++}
++
++static void kk_leak_track(void *obj)
++{
++   if (!obj) return;
++   pthread_mutex_lock(&lt_mtx);
++   int k = lt_kind(object_getClass((id)obj));
++   if (k >= 0) {
++      uint32_t h = lt_hash(obj);
++      for (uint32_t n = 0; n < LT_CAP && lt[h].p && lt[h].p != LT_TOMB; n++)
++         h = (h + 1) & (LT_CAP - 1);
++      lt[h].p = obj; lt[h].kind = k;
++      lt_released[k]++; lt_alive[k]++;
++   }
++   if ((++lt_calls % 500000) == 0) {
++      for (int i = 0; i < lt_nkinds; i++)
++         if (lt_released[i] > 1000 || lt_alive[i] > 50)
++            fprintf(stderr, "kkleak: %-44s released=%ld dealloced=%ld alive=%ld\n", class_getName(lt_cls[i]),
++                    lt_released[i], lt_dealloced[i], lt_alive[i]);
++   }
++   pthread_mutex_unlock(&lt_mtx);
++}
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -128,8 +198,73 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLBuffer> buf = (id<MTLBuffer>)buffer;
        MTLTextureDescriptor *descriptor = [mtl_new_texture_descriptor(layout) autorelease];
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h	2026-10-09 10:36:19.666936893 +0300
+@@ -12,6 +12,7 @@
+ #include <stdint.h>
+ 
+ void mtl_command_allocator_reset(mtl_command_allocator *allocator);
++uint64_t mtl_command_allocator_get_allocated_size(mtl_command_allocator *allocator);
+ 
+ void mtl_begin_command_buffer(mtl_command_buffer *command_buffer,
+                               mtl_command_allocator *allocator);
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m	2026-10-09 10:36:31.553785457 +0300
+@@ -11,15 +11,50 @@
+ #include <Metal/MTL4CommandBuffer.h>
+ #include <Metal/MTL4Counters.h>
+ 
++/* TEMP diagnostics: total memory held by MTL4 command allocators */
++#include <pthread.h>
++#include <stdio.h>
++#define KA_CAP 16384
++static pthread_mutex_t ka_mtx = PTHREAD_MUTEX_INITIALIZER;
++static struct { void *p; uint64_t size; } ka[KA_CAP];
++static uint64_t ka_sum, ka_max;
++static long ka_n, ka_resets;
++void kk_alloc_note(void *p, uint64_t size);
++void kk_alloc_note(void *p, uint64_t size)
++{
++   pthread_mutex_lock(&ka_mtx);
++   uint32_t h = (uint32_t)(((uintptr_t)p >> 4) * 2654435761u) & (KA_CAP - 1);
++   for (int n = 0; n < KA_CAP && ka[h].p && ka[h].p != p; n++)
++      h = (h + 1) & (KA_CAP - 1);
++   if (!ka[h].p) { ka[h].p = p; ka_n++; }
++   ka_sum += size - ka[h].size;
++   ka[h].size = size;
++   if (size > ka_max) ka_max = size;
++   if ((++ka_resets % 20000) == 0)
++      fprintf(stderr, "kkalloc: allocators=%ld sum=%lluMB max=%lluKB\n", ka_n,
++              (unsigned long long)(ka_sum >> 20), (unsigned long long)(ka_max >> 10));
++   pthread_mutex_unlock(&ka_mtx);
++}
++
+ void
+ mtl_command_allocator_reset(mtl_command_allocator *allocator)
+ {
+    @autoreleasepool {
+       id<MTL4CommandAllocator> alloc = (id<MTL4CommandAllocator>)allocator;
++      kk_alloc_note(allocator, [alloc allocatedSize]);
+       [alloc reset];
+    }
+ }
+ 
++uint64_t
++mtl_command_allocator_get_allocated_size(mtl_command_allocator *allocator)
++{
++   @autoreleasepool {
++      id<MTL4CommandAllocator> alloc = (id<MTL4CommandAllocator>)allocator;
++      return [alloc allocatedSize];
++   }
++}
++
+ void
+ mtl_begin_command_buffer(mtl_command_buffer *command_buffer,
+                          mtl_command_allocator *allocator)
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-08 22:51:25.000000000 +0300
 @@ -4,7 +4,9 @@
   * SPDX-License-Identifier: MIT
@@ -165,8 +300,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
 +      [CATransaction flush];
     }
  }
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -245,8 +380,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTL4Compiler> comp = (id<MTL4Compiler>)compiler;
        MTL4RenderPipelineDescriptor *desc = (MTL4RenderPipelineDescriptor *)descriptor;
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -306,8 +441,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        return [dev newCommandBuffer];
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,9 @@
   */
@@ -395,8 +530,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTL4CommandBuffer> cmd = (id<MTL4CommandBuffer>)command_buffer;
        MTL4RenderPassDescriptor *desc = (MTL4RenderPassDescriptor *)descriptor;
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -448,8 +583,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLHeap> hp = (id<MTLHeap>)heap;
        MTLTextureDescriptor *descriptor = [mtl_new_texture_descriptor(layout) autorelease];
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -491,8 +626,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTLDepthStencilDescriptor *desc = (MTLDepthStencilDescriptor *)descriptor;
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -510,8 +645,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTLResidencySetDescriptor *setDescriptor = [[[MTLResidencySetDescriptor alloc] init] autorelease];
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,12 +5,14 @@
   */
@@ -536,8 +671,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTLSamplerDescriptor *desc = (MTLSamplerDescriptor *)descriptor;
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -571,8 +706,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        return [dev newSharedEvent];
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m
+--- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
   */
@@ -598,11 +733,9 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     @autoreleasepool {
        id<MTLTexture> tex = (id<MTLTexture>)texture;
        MTLTextureType type = mtl_texture_view_type(layout->view_type, layout->sample_count_sa);
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_entrypoints.cpython-312.pyc and mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_entrypoints.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_extensions.cpython-312.pyc and mesa-mesa-26.2.4/src/kosmickrisp/util/__pycache__/vk_extensions.cpython-312.pyc differ
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-08 22:39:45.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-09 10:27:29.114858423 +0300
 @@ -12,6 +12,32 @@
  
  #include "util/u_memory.h"
@@ -654,8 +787,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     /* We may only have a mapped buffer, for example if the memory was imported
      * from a host pointer */
     if (bo->mtl_handle)
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-08 22:39:45.000000000 +0300
 @@ -22,6 +22,7 @@
     uint64_t size_B;
@@ -665,8 +798,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
  };
  
  struct kk_ptr {
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-08 22:45:22.000000000 +0300
 @@ -20,6 +20,11 @@
  
@@ -698,8 +831,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     VK_FROM_HANDLE(kk_device, dev, _device);
     VK_FROM_HANDLE(kk_buffer_view, view, bufferView);
  
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-08 23:51:42.000000000 +0300
 @@ -13,6 +13,11 @@
  
@@ -759,8 +892,72 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     }
  
     buffer->vk.device_address =
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c	2026-10-09 11:00:30.387943466 +0300
+@@ -168,9 +168,34 @@
+    return result;
+ }
+ 
++/* MTL4CommandAllocator::reset never gives memory back, so an allocator keeps
++ * the high-water mark of the largest command buffer ever recorded with it.
++ * With many command buffers this adds up to gigabytes. Recreate allocators
++ * that grew too large instead of resetting them: immediately past the hard
++ * limit, and past the soft limit only every so often, since a fresh allocator
++ * has to grow (and map memory) again, which is slow if done every frame. */
++void kk_alloc_note(void *p, uint64_t size); /* TEMP diagnostics */
++#define KK_CMD_ALLOCATOR_SOFT_MAX_SIZE (32ull * 1024 * 1024)
++#define KK_CMD_ALLOCATOR_HARD_MAX_SIZE (128ull * 1024 * 1024)
++#define KK_CMD_ALLOCATOR_TRIM_INTERVAL 64u
++
+ static void
+-kk_reset_encoder_state(struct kk_encoder_state *es)
++kk_reset_encoder_state(struct kk_encoder_state *es, mtl_device *handle)
+ {
++   uint64_t size = mtl_command_allocator_get_allocated_size(es->allocator);
++   bool trim = size > KK_CMD_ALLOCATOR_HARD_MAX_SIZE ||
++               (size > KK_CMD_ALLOCATOR_SOFT_MAX_SIZE &&
++                ++es->allocator_resets >= KK_CMD_ALLOCATOR_TRIM_INTERVAL);
++   if (trim) {
++      mtl_command_allocator *allocator = mtl_new_command_allocator(handle);
++      if (allocator) {
++         kk_alloc_note(es->allocator, 0); /* TEMP diagnostics */
++         mtl_release(es->allocator);
++         es->allocator = allocator;
++         es->allocator_resets = 0;
++         return;
++      }
++   }
+    mtl_command_allocator_reset(es->allocator);
+ }
+ 
+@@ -185,9 +210,9 @@
+    cs_end(cmd);
+    kk_cmd_release_resources(dev, cmd);
+ 
+-   kk_reset_encoder_state(cmd->pre_gfx);
+-   kk_reset_encoder_state(&cmd->gfx);
+-   kk_reset_encoder_state(cmd->post_gfx);
++   kk_reset_encoder_state(cmd->pre_gfx, dev->mtl_handle);
++   kk_reset_encoder_state(&cmd->gfx, dev->mtl_handle);
++   kk_reset_encoder_state(cmd->post_gfx, dev->mtl_handle);
+ 
+    cmd->uploader.bo = NULL;
+    cmd->uploader.offset = 0;
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h	2026-10-09 11:00:12.393596948 +0300
+@@ -209,6 +209,8 @@
+    /* either a mtl_compute_encoder or a mtl_render_encoder */
+    mtl_command_encoder *encoder;
+    mtl_command_allocator *allocator;
++   /* Resets since the allocator was last trimmed, see kk_reset_encoder_state */
++   uint32_t allocator_resets;
+    mtl_command_buffer *cmd_buf;
+    /* Pending timestamp resolves (struct kk_ts_resolve), flushed at cs_end. */
+    struct util_dynarray ts_resolves;
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-08 22:47:33.000000000 +0300
 @@ -21,6 +21,11 @@
  #include <inttypes.h>
@@ -796,8 +993,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     kk_destroy_bo(dev, mem->bo);
  
     vk_device_memory_destroy(&dev->vk, pAllocator, &mem->vk);
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-08 22:45:22.000000000 +0300
 @@ -18,6 +18,11 @@
  
@@ -829,8 +1026,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     VK_FROM_HANDLE(kk_device, dev, _device);
     VK_FROM_HANDLE(kk_image_view, view, imageView);
  
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-08 22:45:22.000000000 +0300
 @@ -21,6 +21,11 @@
  #include "vk_format.h"
@@ -862,8 +1059,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     VK_FROM_HANDLE(kk_device, dev, device);
     VK_FROM_HANDLE(kk_image, image, _image);
  
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-08 23:43:16.000000000 +0300
 @@ -19,6 +19,55 @@
  
@@ -1048,8 +1245,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
        mtl_compute_write_timestamp(es->encoder, pool->ts.heap, query);
        util_dynarray_append(&es->ts_resolves, resolve);
     }
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-08 22:54:16.000000000 +0300
 @@ -83,8 +83,6 @@
  
@@ -1071,8 +1268,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
  
     queue->vk.driver_submit = kk_queue_submit;
  
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-08 22:45:22.000000000 +0300
 @@ -20,6 +20,11 @@
  #include "util/format/format_utils.h"
@@ -1104,27 +1301,8 @@ diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7
     VK_FROM_HANDLE(kk_device, dev, device);
     VK_FROM_HANDLE(kk_sampler, sampler, _sampler);
  
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/apiexec.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/apiexec.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/gl_XML.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/gl_XML.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/glX_XML.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/glX_XML.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/license.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/license.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/marshal_XML.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/marshal_XML.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/static_data.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/static_data.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/typeexpr.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/glapi/glapi/gen/__pycache__/typeexpr.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/main/__pycache__/format_parser.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/main/__pycache__/format_parser.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/mesa/main/__pycache__/get_hash_params.cpython-314.pyc and mesa-mesa-26.2.4/src/mesa/main/__pycache__/get_hash_params.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-312.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-314.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_pack.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-312.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-314.pyc and mesa-mesa-26.2.4/src/util/format/__pycache__/u_format_parse.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/util/perf/__pycache__/u_trace.cpython-314.pyc and mesa-mesa-26.2.4/src/util/perf/__pycache__/u_trace.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-312.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-314.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_entrypoints.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-312.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-312.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-314.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_extensions.cpython-314.pyc differ
-Binary files /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_physical_device_features_gen.cpython-312.pyc and mesa-mesa-26.2.4/src/vulkan/util/__pycache__/vk_physical_device_features_gen.cpython-312.pyc differ
-diff --color -ruN -x zlib-1.3.1 -x packagecache /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m
---- /var/folders/49/9zsqnv5j50qbfmf7bwdq3_9m0000gn/T/tmp.Fj0ALkwpvW/mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-01 17:39:53.000000000 +0300
+diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m
+--- mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-08 22:17:42.000000000 +0300
 @@ -1,3 +1,4 @@
 +#include <stdio.h>

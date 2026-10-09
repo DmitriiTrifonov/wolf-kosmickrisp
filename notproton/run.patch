@@ -1,0 +1,36 @@
+--- run.orig	2026-10-09 19:36:18.431353372 +0300
++++ run	2026-10-09 20:35:49.050455163 +0300
+@@ -1237,6 +1237,16 @@
+   uielement_arg="  <key>LSUIElement</key><true/>"
+   echo "launcher tile hidden by NOTPROTON_HIDE_LAUNCHER_TILE" >> "$log" 2>&1 || true
+ fi
++metal_capture_arg=""
++metal_capture_env=""
++overlay_env=""
++if grep -qs '^NO_STEAM_OVERLAY=1' "${STEAM_COMPAT_DATA_PATH:-/nonexistent}/notproton-kosmickrisp"; then
++  overlay_env="unset STEAM_DYLD_INSERT_LIBRARIES"
++fi
++if grep -qs '^MTL_CAPTURE_ENABLED=1' "${STEAM_COMPAT_DATA_PATH:-/nonexistent}/notproton-kosmickrisp"; then
++  metal_capture_arg="  <key>MetalCaptureEnabled</key><true/>"
++  metal_capture_env="export MTL_CAPTURE_ENABLED=1 WINEDEBUG=err+all,fixme-all,+seh"
++fi
+ cat > "$loader_contents/Info.plist" <<PLIST
+ <?xml version="1.0" encoding="UTF-8"?>
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+@@ -1252,6 +1262,7 @@
+   <key>NSHighResolutionCapable</key><true/>
+   <key>NSPrincipalClass</key><string>NSApplication</string>
+ $uielement_arg
++$metal_capture_arg
+ $icon_arg
+ </dict>
+ </plist>
+@@ -1277,6 +1288,8 @@
+ cat > "$loader_macos/launcher" <<LAUNCHER
+ #!/bin/sh
+ export WINELOADER="$WINELOADER"
++$metal_capture_env
++$overlay_env
+ wine_log="$loader_root/notproton-wine.log"
+ exec > "\$wine_log" 2>&1
+ shim="$HOME/Library/Application Support/notproton/overlay-shim.dylib"

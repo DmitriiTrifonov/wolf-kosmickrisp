@@ -1,4 +1,246 @@
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_batch.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_batch.c
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_batch.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_batch.c	2026-10-09 21:24:31.659466894 +0300
+@@ -7,6 +7,7 @@
+ #include "zink_resource.h"
+ #include "zink_screen.h"
+ #include "zink_surface.h"
++#include "util/u_debug.h"
+ 
+ #ifdef VK_USE_PLATFORM_METAL_EXT
+ #include "QuartzCore/CAMetalLayer.h"
+@@ -428,6 +429,15 @@
+ }
+ 
+ /* only returns batch state for COPY_ONLY contexts */
++static unsigned
++zink_kk_max_batches(void)
++{
++   static int max = -1;
++   if (max < 0)
++      max = debug_get_num_option("ZINK_KK_MAX_BATCHES", 32);
++   return MAX2(max, 4);
++}
++
+ static struct zink_batch_state *
+ find_completed_batch_state(struct zink_context *ctx)
+ {
+@@ -479,6 +489,19 @@
+    if (!bs)
+       bs = find_completed_batch_state(ctx);
+ 
++   /* Every batch state keeps its command buffers' memory forever, so once
++    * enough are in flight wait for the oldest one instead of making more. */
++   if (!bs && ctx->bs && ctx->batch_states &&
++       ctx->batch_states_count >= zink_kk_max_batches()) {
++      struct zink_batch_state *oldest = ctx->batch_states;
++      if (screen->threaded_submit)
++         util_queue_fence_wait(&oldest->flush_completed);
++      if (oldest->fence.submitted && oldest->fence.batch_id)
++         zink_screen_timeline_wait(screen, oldest->fence.batch_id,
++                                   OS_TIMEOUT_INFINITE);
++      bs = find_completed_batch_state(ctx);
++   }
++
+    if (!bs)
+       bs = find_screen_state(screen, ctx);
+ 
+@@ -620,9 +643,11 @@
+          /* if nothing can save us, abort */
+          abort();
+       screen->device_lost = true;
+-   } else if (bs->ctx->batch_states_count > 5000) {
+-      /* throttle in case something crazy is happening */
+-      zink_screen_timeline_wait(screen, bs->fence.batch_id - 2500, OS_TIMEOUT_INFINITE);
++   } else if (bs->ctx->batch_states_count > zink_kk_max_batches()) {
++      /* Every batch state keeps its command buffers' memory forever, so do not
++       * let the CPU run hundreds of batches ahead of a slow GPU. */
++      zink_screen_timeline_wait(screen, bs->fence.batch_id - zink_kk_max_batches() / 2,
++                                OS_TIMEOUT_INFINITE);
+    } else if (screen->curr_batch - screen->last_finished > 5) {
+       /* try to avoid ooming by regularly checking for batch completion */
+       zink_screen_timeline_wait(screen, screen->last_finished + 1, 0);
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_clear.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_clear.c
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_clear.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_clear.c	2026-10-09 17:05:32.294680256 +0300
+@@ -107,6 +107,8 @@
+    cr.baseArrayLayer = 0;
+    cr.layerCount = util_framebuffer_get_num_layers(fb);
+    assert(ctx->in_rp);
++   if (buffers & PIPE_CLEAR_DEPTHSTENCIL)
++      ctx->kk_zs_written |= 2;
+    VKCTX(CmdClearAttachments)(ctx->bs->cmdbuf, num_attachments, attachments, 1, &cr);
+    ctx->bs->has_work = true;
+    /*
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.c
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.c	2026-10-09 17:05:32.293644172 +0300
+@@ -3541,9 +3541,14 @@
+    };
+    ctx->dynamic_fb.info.pNext = ctx->transient_msrtss && has_msrtss ? &msrtss : NULL;
+ 
++   zink_rp_note_begin();
+    VKCTX(CmdBeginRendering)(ctx->bs->cmdbuf, &ctx->dynamic_fb.info);
+    ctx->in_rp = true;
+    ctx->can_promote_depth_op = ctx->fb_state.zsbuf.texture && ctx->dynamic_fb.attachments[PIPE_MAX_COLOR_BUFS].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR;
++   ctx->kk_zs_written = ctx->fb_state.zsbuf.texture &&
++                        (ctx->dynamic_fb.attachments[PIPE_MAX_COLOR_BUFS].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR ||
++                         ctx->dynamic_fb.attachments[PIPE_MAX_COLOR_BUFS + 1].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR ||
++                         (clear_buffers & PIPE_CLEAR_DEPTHSTENCIL)) ? 1 : 0;
+    if (formats_changed) {
+       for (unsigned i = 0; i < ctx->fb_state.nr_cbufs; i++)
+          ctx->fb_state.cbufs[i].format = pformats[i];
+@@ -3657,7 +3662,7 @@
+ }
+ 
+ void
+-zink_batch_no_rp_safe(struct zink_context *ctx)
++zink_batch_no_rp_safe_impl(struct zink_context *ctx)
+ {
+    if (!ctx->in_rp)
+       return;
+@@ -3691,7 +3696,8 @@
+          }
+       }
+       if (zap) {
+-         VKCTX(CmdBeginRendering)(ctx->bs->cmdbuf, &ctx->dynamic_fb.info);
++         zink_rp_note_begin();
++   VKCTX(CmdBeginRendering)(ctx->bs->cmdbuf, &ctx->dynamic_fb.info);
+          VKCTX(CmdEndRendering)(ctx->bs->cmdbuf);
+       }
+    }
+@@ -3717,13 +3723,79 @@
+ }
+ 
+ void
+-zink_batch_no_rp(struct zink_context *ctx)
++zink_batch_no_rp_impl(struct zink_context *ctx)
+ {
+    if (!ctx->in_rp)
+       return;
+    if (ctx->track_renderpasses && !ctx->blitting)
+       tc_renderpass_info_reset(&ctx->dynamic_fb.tc_info);
+-   zink_batch_no_rp_safe(ctx);
++   zink_batch_no_rp_safe_impl(ctx);
++}
++
++/* TEMP diagnostics: count which call sites end a render pass */
++#include <stdio.h>
++#include <windows.h>
++#define ZRP_SITES 64
++static struct { const char *file; int line; unsigned n; } zrp_sites[ZRP_SITES];
++static unsigned zrp_begins;
++static uint64_t zrp_last;
++
++static void
++zrp_maybe_print(void)
++{
++   uint64_t now = GetTickCount64();
++   if (!zrp_last)
++      zrp_last = now;
++   if (now - zrp_last < 2000)
++      return;
++   double secs = (now - zrp_last) / 1000.0;
++   zrp_last = now;
++   char buf[2048];
++   int o = snprintf(buf, sizeof(buf), "zinkrp: begins/s=%.0f", zrp_begins / secs);
++   zrp_begins = 0;
++   for (int i = 0; i < ZRP_SITES && zrp_sites[i].file; i++) {
++      if (zrp_sites[i].n && o < (int)sizeof(buf) - 64) {
++         const char *f = strrchr(zrp_sites[i].file, '/');
++         o += snprintf(buf + o, sizeof(buf) - o, " %s:%d=%.0f", f ? f + 1 : zrp_sites[i].file,
++                       zrp_sites[i].line, zrp_sites[i].n / secs);
++      }
++      zrp_sites[i].n = 0;
++   }
++   fprintf(stderr, "%s\n", buf);
++   fflush(stderr);
++}
++
++void
++zink_rp_note_begin(void)
++{
++   zrp_begins++;
++   zrp_maybe_print();
++}
++
++void
++zink_rp_note_site(const char *file, int line)
++{
++   for (int i = 0; i < ZRP_SITES; i++) {
++      if (!zrp_sites[i].file) {
++         zrp_sites[i].file = file;
++         zrp_sites[i].line = line;
++      }
++      if (zrp_sites[i].file == file && zrp_sites[i].line == line) {
++         zrp_sites[i].n++;
++         break;
++      }
++   }
++}
++
++void
++zink_batch_no_rp_dbg(struct zink_context *ctx, bool safe, const char *file, int line)
++{
++   if (ctx->in_rp)
++      zink_rp_note_site(file, line);
++   if (safe)
++      zink_batch_no_rp_safe_impl(ctx);
++   else
++      zink_batch_no_rp_impl(ctx);
+ }
+ 
+ static void
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.h mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.h
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_context.h	2026-10-09 16:25:29.027319403 +0300
+@@ -135,7 +135,9 @@
+ bool
+ zink_check_batch_completion(struct zink_context *ctx, uint64_t batch_id);
+ VkCommandBuffer
+-zink_get_cmdbuf(struct zink_context *ctx, struct zink_resource *src, struct zink_resource *dst);
++zink_get_cmdbuf_impl(struct zink_context *ctx, struct zink_resource *src, struct zink_resource *dst,
++                     const char *file, int line);
++#define zink_get_cmdbuf(ctx, src, dst) zink_get_cmdbuf_impl((ctx), (src), (dst), __FILE__, __LINE__)
+ unsigned
+ zink_update_rendering_info(struct zink_context *ctx);
+ void
+@@ -179,9 +181,18 @@
+ zink_batch_rp(struct zink_context *ctx);
+ 
+ void
+-zink_batch_no_rp(struct zink_context *ctx);
++zink_batch_no_rp_impl(struct zink_context *ctx);
+ void
+-zink_batch_no_rp_safe(struct zink_context *ctx);
++zink_batch_no_rp_safe_impl(struct zink_context *ctx);
++/* TEMP diagnostics: count which call sites end a render pass */
++void
++zink_batch_no_rp_dbg(struct zink_context *ctx, bool safe, const char *file, int line);
++void
++zink_rp_note_begin(void);
++void
++zink_rp_note_site(const char *file, int line);
++#define zink_batch_no_rp(ctx) zink_batch_no_rp_dbg((ctx), false, __FILE__, __LINE__)
++#define zink_batch_no_rp_safe(ctx) zink_batch_no_rp_dbg((ctx), true, __FILE__, __LINE__)
+ 
+ static inline VkPipelineStageFlags
+ zink_pipeline_flags_from_pipe_stage(mesa_shader_stage pstage)
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_draw.cpp mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_draw.cpp
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_draw.cpp	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_draw.cpp	2026-10-09 17:05:32.295481006 +0300
+@@ -627,6 +627,10 @@
+    /* check dead swapchain */
+    if (unlikely(!ctx->in_rp))
+       return;
++   if (ctx->dsa_state && ctx->dsa_state->hw_state.depth_write)
++      ctx->kk_zs_written |= 4;
++   if (ctx->dsa_state && ctx->dsa_state->hw_state.stencil_test)
++      ctx->kk_zs_written |= 8;
+ 
+    if (BATCH_CHANGED)
+       zink_update_descriptor_refs(ctx, false);
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c
 --- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_query.c	2026-10-08 23:36:18.000000000 +0300
 @@ -10,7 +10,7 @@
@@ -27,7 +269,140 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/gallium/drivers
     util_dynarray_clear(&query->starts);
     query->start_offset = 0;
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp	2026-10-09 17:09:03.837984011 +0300
+@@ -24,6 +24,7 @@
+  *    Mike Blumenkrantz <michael.blumenkrantz@gmail.com>
+  */
+ 
++#include "util/u_debug.h"
+ #include "zink_batch.h"
+ #include "zink_context.h"
+ #include "zink_descriptors.h"
+@@ -138,12 +139,20 @@
+ }
+ 
+ VkCommandBuffer
+-zink_get_cmdbuf(struct zink_context *ctx, struct zink_resource *src, struct zink_resource *dst)
++zink_get_cmdbuf_impl(struct zink_context *ctx, struct zink_resource *src, struct zink_resource *dst,
++                     const char *file, int line)
+ {
+    bool unordered_exec = !ctx->no_reorder;
++   /* TEMP diagnostics: reason code added to the line as 100000 * reason */
++   int reason = ctx->no_reorder ? 1 : 0;
+ 
+-   unordered_exec &= check_unordered_exec(ctx, src, false) &&
+-                     check_unordered_exec(ctx, dst, true);
++   bool src_ok = check_unordered_exec(ctx, src, false);
++   bool dst_ok = src_ok && check_unordered_exec(ctx, dst, true);
++   if (!reason && !src_ok)
++      reason = src && src->obj->is_buffer ? 2 : 3;
++   else if (!reason && !dst_ok)
++      reason = dst && dst->obj->is_buffer ? 4 : 5;
++   unordered_exec &= src_ok && dst_ok;
+ 
+    if (src)
+       src->obj->unordered_read = unordered_exec;
+@@ -151,7 +160,7 @@
+       dst->obj->unordered_write = unordered_exec;
+ 
+    if (!unordered_exec || ctx->unordered_blitting)
+-      zink_batch_no_rp(ctx);
++      zink_batch_no_rp_dbg(ctx, false, file, line + 100000 * (reason ? reason : 6));
+ 
+    if (unordered_exec) {
+       ctx->bs->has_reordered_work = true;
+@@ -390,6 +399,8 @@
+ static void
+ apply_new_access(struct zink_context *ctx, struct zink_resource *res, VkAccessFlags flags, VkPipelineStageFlags pipeline, bool unordered, bool usage_matches, bool is_write)
+ {
++   if (is_write)
++      res->obj->last_write_rp = ctx->rp_counter + (ctx->in_rp ? 0 : 1);
+    if (unordered) {
+       if (is_write) {
+          res->obj->unordered_access = flags;
+@@ -581,6 +592,19 @@
+    }
+ }
+ 
++/* 0: off, 1: skip safe cases, 2: also never split for sampling the bound
++ * depth/stencil attachment, even if it was written in this render pass (reads
++ * then see the depth stored before the pass; fine when the pass only rewrites
++ * the same depth, as after a depth prepass) */
++static int
++zink_kk_implicit_rp_sync(void)
++{
++   static int level = -1;
++   if (level < 0)
++      level = debug_get_num_option("ZINK_KK_IMPLICIT_RP_SYNC", 0);
++   return level;
++}
++
+ ALWAYS_INLINE static bool
+ resource_needs_barrier(struct zink_resource *res, VkAccessFlags flags, VkPipelineStageFlags pipeline, bool unordered)
+ {
+@@ -665,6 +689,36 @@
+    if (ctx->no_reorder)
+       can_skip_unordered = can_skip_ordered = false;
+ 
++   /* ZINK_KK_IMPLICIT_RP_SYNC: KosmicKrisp fully synchronizes between Metal
++    * encoders (every render pass), so a read of an image last written in an
++    * earlier render pass needs no barrier. Skipping it avoids splitting the
++    * current render pass, which is costly on tilers. */
++   /* Same for sampling the bound depth/stencil attachment (soft particles,
++    * decals): if nothing wrote depth/stencil since this render pass began,
++    * memory already holds what the pass loaded. Otherwise every such draw
++    * splits the pass, and the restarted pass marks depth as written again. */
++   bool kk_zs_read_only = res->fb_bind_count && res->fb_binds == BITFIELD_BIT(PIPE_MAX_COLOR_BUFS) &&
++                          (!ctx->kk_zs_written || zink_kk_implicit_rp_sync() >= 2);
++   if (GENERAL_IMAGE && !UNSYNCHRONIZED && !is_write && ctx->in_rp &&
++       zink_kk_implicit_rp_sync() &&
++       ((!res->fb_bind_count && res->obj->last_write_rp < ctx->rp_counter) || kk_zs_read_only)) {
++      can_skip_unordered = can_skip_ordered = true;
++      zink_rp_note_site("kk_skip", 0); /* TEMP diagnostics */
++   } else if (GENERAL_IMAGE && !UNSYNCHRONIZED && ctx->in_rp && !can_skip_unordered && !can_skip_ordered) {
++      /* TEMP diagnostics: why the barrier was not skipped */
++      if (is_write)
++         zink_rp_note_site("kk_noskip_write", 0);
++      else if (res->fb_binds == BITFIELD_BIT(PIPE_MAX_COLOR_BUFS))
++         /* why: kk_zs_written bits, +16 reader writes depth, +32 reader has stencil test */
++         zink_rp_note_site("kk_noskip_zs", (int)ctx->kk_zs_written |
++                           (ctx->dsa_state && ctx->dsa_state->hw_state.depth_write ? 16 : 0) |
++                           (ctx->dsa_state && ctx->dsa_state->hw_state.stencil_test ? 32 : 0));
++      else if (res->fb_bind_count)
++         zink_rp_note_site("kk_noskip_fb", (int)res->fb_binds);
++      else
++         zink_rp_note_site("kk_noskip_recent", (int)(ctx->rp_counter - res->obj->last_write_rp));
++   }
++
+    if (!can_skip_unordered && !can_skip_ordered) {
+       VkCommandBuffer cmdbuf = UNSYNCHRONIZED ? ctx->bs->unsynchronized_cmdbuf :
+                                                 is_write ? zink_get_cmdbuf(ctx, NULL, res) : zink_get_cmdbuf(ctx, res, NULL);
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_types.h mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_types.h
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_types.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_types.h	2026-10-09 17:05:32.292274005 +0300
+@@ -1201,6 +1201,9 @@
+    VkAccessFlags unordered_access;
+    VkAccessFlags last_write;
+    unsigned transfer_rp;
++   /* rp_counter value of the render pass the last write happened in (or the
++    * next one, for writes outside a render pass) */
++   unsigned last_write_rp;
+ 
+    /* 'access' is propagated from unordered_access to handle ops occurring
+     * in the ordered cmdbuf which can promote barriers to unordered
+@@ -1980,6 +1983,9 @@
+    unsigned index_size;
+ 
+    unsigned rp_counter;
++   /* depth/stencil attachment written (draw with depth/stencil writes or clear)
++    * since the current render pass began; for ZINK_KK_IMPLICIT_RP_SYNC */
++   unsigned kk_zs_written; /* TEMP: bitmask of why: 1 clear at begin, 2 clear, 4 depth write draw, 8 stencil draw */
+    unsigned last_transfer_sync;
+ 
+    uint32_t num_so_targets;
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_argument_table.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -54,9 +429,9 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTL4ArgumentTableDescriptor *desc = (MTL4ArgumentTableDescriptor *)descriptor;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-09 11:00:22.992443486 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_bridge.m	2026-10-09 19:44:35.492962598 +0300
 @@ -31,6 +31,8 @@
     }
  }
@@ -66,7 +441,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
  void *
  mtl_retain(void *handle)
  {
-@@ -48,3 +50,94 @@
+@@ -48,3 +50,156 @@
        [obj release];
     }
  }
@@ -161,7 +536,69 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
 +   }
 +   pthread_mutex_unlock(&lt_mtx);
 +}
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m
++
++/* TEMP diagnostics: capture one frame to a .gputrace when /tmp/kkcapture
++ * appears. Needs MTL_CAPTURE_ENABLED=1 in the environment. Called once per
++ * frame (at swapchain acquire), so a capture spans exactly one frame. */
++#include <Metal/MTLCaptureManager.h>
++#include <objc/objc-exception.h>
++static objc_exception_preprocessor kk_prev_exc_pp;
++static id
++kk_exc_pp(id exc)
++{
++   NSException *e = (NSException *)exc;
++   fprintf(stderr, "kkcapture: objc exception %s: %s\n%s\n",
++           [[e name] UTF8String], [[e reason] UTF8String],
++           [[[e callStackSymbols] componentsJoinedByString:@"\n"] UTF8String]);
++   return kk_prev_exc_pp ? kk_prev_exc_pp(exc) : exc;
++}
++#include <sys/stat.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <time.h>
++#include <unistd.h>
++void kk_capture_frame_tick(void);
++void
++kk_capture_frame_tick(void)
++{
++   static bool capturing;
++   @autoreleasepool {
++      MTLCaptureManager *mgr = [MTLCaptureManager sharedCaptureManager];
++      if (capturing) {
++         [mgr stopCapture];
++         capturing = false;
++         fprintf(stderr, "kkcapture: stopped\n");
++         return;
++      }
++      struct stat st;
++      if (stat("/tmp/kkcapture", &st) != 0)
++         return;
++      unlink("/tmp/kkcapture");
++      static bool pp_set;
++      if (!pp_set) {
++         kk_prev_exc_pp = objc_setExceptionPreprocessor(kk_exc_pp);
++         pp_set = true;
++      }
++      if (![mgr supportsDestination:MTLCaptureDestinationGPUTraceDocument]) {
++         fprintf(stderr, "kkcapture: gputrace destination unsupported (MTL_CAPTURE_ENABLED=1?)\n");
++         return;
++      }
++      char path[512];
++      snprintf(path, sizeof(path), "%s/Desktop/kk-%ld.gputrace", getenv("HOME"), (long)time(NULL));
++      MTLCaptureDescriptor *desc = [[MTLCaptureDescriptor new] autorelease];
++      desc.captureObject = MTLCreateSystemDefaultDevice();
++      desc.destination = MTLCaptureDestinationGPUTraceDocument;
++      desc.outputURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
++      NSError *err = nil;
++      if ([mgr startCaptureWithDescriptor:desc error:&err]) {
++         capturing = true;
++         fprintf(stderr, "kkcapture: started %s\n", path);
++      } else {
++         fprintf(stderr, "kkcapture: start failed: %s\n", [[err localizedDescription] UTF8String]);
++      }
++   }
++}
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_buffer.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -198,7 +635,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLBuffer> buf = (id<MTLBuffer>)buffer;
        MTLTextureDescriptor *descriptor = [mtl_new_texture_descriptor(layout) autorelease];
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.h	2026-10-09 10:36:19.666936893 +0300
 @@ -12,6 +12,7 @@
@@ -209,7 +646,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
  
  void mtl_begin_command_buffer(mtl_command_buffer *command_buffer,
                                mtl_command_allocator *allocator);
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_buffer.m	2026-10-09 10:36:31.553785457 +0300
 @@ -11,15 +11,50 @@
@@ -263,7 +700,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
  void
  mtl_begin_command_buffer(mtl_command_buffer *command_buffer,
                           mtl_command_allocator *allocator)
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_command_queue.m	2026-10-09 12:14:30.415988096 +0300
 @@ -4,7 +4,9 @@
@@ -303,7 +740,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
 +      [CATransaction flush];
     }
  }
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_compiler.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -383,7 +820,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTL4Compiler> comp = (id<MTL4Compiler>)compiler;
        MTL4RenderPipelineDescriptor *desc = (MTL4RenderPipelineDescriptor *)descriptor;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_device.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -444,9 +881,9 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        return [dev newCommandBuffer];
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-08 22:51:25.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_encoder.m	2026-10-09 23:05:06.298557578 +0300
 @@ -5,6 +5,9 @@
   */
  
@@ -457,7 +894,47 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
  
  #include <Metal/MTL4CommandBuffer.h>
  #include <Metal/MTL4ComputeCommandEncoder.h>
-@@ -84,6 +87,7 @@
+@@ -22,6 +25,12 @@
+    }
+ }
+ 
++/* Render passes may share a command buffer, and only command buffer
++ * boundaries flush GPU caches on their own, so barriers have to flush to the
++ * device coherence point too. */
++#define KK_BARRIER_VISIBILITY                                                  \
++   (MTL4VisibilityOptionDevice | MTL4VisibilityOptionResourceAlias)
++
+ void
+ mtl_barrier_after_stages(void *encoder, enum mtl_stages after_stages,
+                          enum mtl_stages before_queue_stages)
+@@ -31,7 +40,7 @@
+       /* TODO_KOSMICKRISP Expose visibility option since resource alias should only be required
+        * if occlusion queries are used */
+       [enc barrierAfterStages:(MTLStages)after_stages beforeQueueStages:(MTLStages)before_queue_stages
+-           visibilityOptions:MTL4VisibilityOptionResourceAlias];
++           visibilityOptions:KK_BARRIER_VISIBILITY];
+    }
+ }
+ 
+@@ -42,7 +51,7 @@
+    @autoreleasepool {
+       id<MTL4CommandEncoder> enc = (id<MTL4CommandEncoder>)encoder;
+       [enc barrierAfterEncoderStages:(MTLStages)after_stages beforeEncoderStages:(MTLStages)before_queue_stages
+-           visibilityOptions:MTL4VisibilityOptionResourceAlias];
++           visibilityOptions:KK_BARRIER_VISIBILITY];
+    }
+ }
+ 
+@@ -55,7 +64,7 @@
+       id<MTL4CommandEncoder> enc = (id<MTL4CommandEncoder>)encoder;
+       [enc barrierAfterQueueStages:(MTLStages)after_queue_stages
+                       beforeStages:(MTLStages)before_stages
+-                 visibilityOptions:MTL4VisibilityOptionResourceAlias];
++                 visibilityOptions:KK_BARRIER_VISIBILITY];
+    }
+ }
+ 
+@@ -84,6 +93,7 @@
  mtl_compute_encoder *
  mtl_new_compute_command_encoder(mtl_command_buffer *cmd_buffer)
  {
@@ -465,7 +942,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTL4CommandBuffer> cmd_buf = (id<MTL4CommandBuffer>)cmd_buffer;
        return [[cmd_buf computeCommandEncoder] retain];
-@@ -96,6 +100,10 @@
+@@ -96,6 +106,10 @@
                                 mtl_buffer *dst_buf, size_t dst_offset,
                                 size_t size)
  {
@@ -476,7 +953,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTL4ComputeCommandEncoder> enc = (id<MTL4ComputeCommandEncoder>)encoder;
        id<MTLBuffer> mtl_src_buffer = (id<MTLBuffer>)src_buf;
-@@ -108,6 +116,9 @@
+@@ -108,6 +122,9 @@
  mtl_copy_from_buffer_to_texture(mtl_compute_encoder *encoder,
                                  struct mtl_buffer_image_copy *data)
  {
@@ -486,7 +963,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        const MTLSize size = MTLSizeMake(data->image_size.x, data->image_size.y, data->image_size.z);
        const MTLOrigin origin = MTLOriginMake(data->image_origin.x, data->image_origin.y, data->image_origin.z);
-@@ -131,6 +142,9 @@
+@@ -131,6 +148,9 @@
  mtl_copy_from_texture_to_buffer(mtl_compute_encoder *encoder,
                                  struct mtl_buffer_image_copy *data)
  {
@@ -496,7 +973,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        const MTLSize size = MTLSizeMake(data->image_size.x, data->image_size.y, data->image_size.z);
        const MTLOrigin origin = MTLOriginMake(data->image_origin.x, data->image_origin.y, data->image_origin.z);
-@@ -158,6 +172,9 @@
+@@ -158,6 +178,9 @@
                                   mtl_texture *dst_tex_handle, size_t dst_slice,
                                   size_t dst_level, struct mtl_origin dst_origin)
  {
@@ -506,7 +983,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        MTLOrigin mtl_src_origin = MTLOriginMake(src_origin.x, src_origin.y, src_origin.z);
        MTLSize mtl_src_size = MTLSizeMake(src_size.x, src_size.y, src_size.z);
-@@ -203,11 +220,16 @@
+@@ -203,11 +226,16 @@
  mtl_dispatch_threads(mtl_compute_encoder *encoder,
                       struct mtl_size grid_size, struct mtl_size local_size)
  {
@@ -525,7 +1002,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
  
        [enc dispatchThreads:thread_count threadsPerThreadgroup:threads_per_threadgroup];
     }
-@@ -235,6 +257,7 @@
+@@ -235,6 +263,7 @@
  mtl_new_render_command_encoder_with_descriptor(
     mtl_command_buffer *command_buffer, mtl_render_pass_descriptor *descriptor)
  {
@@ -533,7 +1010,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTL4CommandBuffer> cmd = (id<MTL4CommandBuffer>)command_buffer;
        MTL4RenderPassDescriptor *desc = (MTL4RenderPassDescriptor *)descriptor;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_heap.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -586,7 +1063,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLHeap> hp = (id<MTLHeap>)heap;
        MTLTextureDescriptor *descriptor = [mtl_new_texture_descriptor(layout) autorelease];
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_render_state.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -629,7 +1106,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTLDepthStencilDescriptor *desc = (MTLDepthStencilDescriptor *)descriptor;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_residency_set.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -648,7 +1125,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTLResidencySetDescriptor *setDescriptor = [[[MTLResidencySetDescriptor alloc] init] autorelease];
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sampler.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,12 +5,14 @@
@@ -674,7 +1151,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        MTLSamplerDescriptor *desc = (MTLSamplerDescriptor *)descriptor;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_sync.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -709,7 +1186,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLDevice> dev = (id<MTLDevice>)device;
        return [dev newSharedEvent];
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m
 --- mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/bridge/mtl_texture.m	2026-10-08 22:51:25.000000000 +0300
 @@ -5,6 +5,7 @@
@@ -736,14 +1213,148 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/bri
     @autoreleasepool {
        id<MTLTexture> tex = (id<MTLTexture>)texture;
        MTLTextureType type = mtl_texture_view_type(layout->view_type, layout->sample_count_sa);
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.cl mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.cl
+--- mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.cl	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.cl	2026-10-09 20:06:38.282948019 +0300
+@@ -22,17 +22,11 @@
+    return results + (result_index * reports_per_query);
+ }
+ 
+-/**
+- * Goes through a series of consecutive query indices in the given pool,
+- * setting all element values to 0 and emitting them as available.
+- */
+-KERNEL(1)
+-libkk_reset_query(global uint32_t *availability, global uint64_t *results,
+-                  global uint16_t *oq_index, uint32_t first_query,
+-                  uint16_t reports_per_query, int set_available)
++static inline void
++reset_query(global uint32_t *availability, global uint64_t *results,
++            global uint16_t *oq_index, uint32_t query,
++            uint reports_per_query, int set_available)
+ {
+-   uint32_t query = first_query + cl_global_id.x;
+-
+    uint64_t value = 0;
+    if (availability) {
+       availability[query] = set_available;
+@@ -49,6 +43,28 @@
+    }
+ }
+ 
++/**
++ * Goes through a series of consecutive query indices in the given pool,
++ * setting all element values to 0 and emitting them as available.
++ */
++KERNEL(1)
++libkk_reset_query(global uint32_t *availability, global uint64_t *results,
++                  global uint16_t *oq_index, uint32_t first_query,
++                  uint16_t reports_per_query, int set_available)
++{
++   reset_query(availability, results, oq_index, first_query + cl_global_id.x,
++               reports_per_query, set_available);
++}
++
++/* One query per thread; entries never touch the same memory. */
++KERNEL(1)
++libkk_reset_query_array(global struct libkk_query_reset_desc *descs)
++{
++   global struct libkk_query_reset_desc *d = &descs[cl_global_id.x];
++   reset_query(d->availability, d->results, d->oq_index, d->query,
++               d->reports_per_query, d->set_available);
++}
++
+ KERNEL(1)
+ libkk_write_u32_array(global struct libkk_imm_write *write_array)
+ {
+@@ -62,16 +78,11 @@
+    *address = value;
+ }
+ 
+-KERNEL(1)
+-libkk_copy_queries(global uint32_t *availability, global uint64_t *results,
+-                   global uint16_t *oq_index, uint64_t dst_addr,
+-                   uint64_t dst_stride, uint32_t first_query,
+-                   VkQueryResultFlagBits flags, uint16_t reports_per_query)
++static inline void
++copy_query(global uint32_t *availability, global uint64_t *results,
++           global uint16_t *oq_index, uint64_t dst, uint32_t query,
++           VkQueryResultFlagBits flags, uint reports_per_query)
+ {
+-   uint index = cl_group_id.x;
+-   uint64_t dst = dst_addr + (((uint64_t)index) * dst_stride);
+-   uint32_t query = first_query + index;
+-
+    bool available;
+    if (availability)
+       available = availability[query];
+@@ -94,3 +105,24 @@
+       vk_write_query(dst, reports_per_query, flags, available);
+    }
+ }
++
++KERNEL(1)
++libkk_copy_queries(global uint32_t *availability, global uint64_t *results,
++                   global uint16_t *oq_index, uint64_t dst_addr,
++                   uint64_t dst_stride, uint32_t first_query,
++                   VkQueryResultFlagBits flags, uint16_t reports_per_query)
++{
++   uint index = cl_group_id.x;
++   copy_query(availability, results, oq_index,
++              dst_addr + (((uint64_t)index) * dst_stride), first_query + index,
++              flags, reports_per_query);
++}
++
++/* One query per thread; entries never write the same destination. */
++KERNEL(1)
++libkk_copy_queries_array(global struct libkk_query_copy_desc *descs)
++{
++   global struct libkk_query_copy_desc *d = &descs[cl_global_id.x];
++   copy_query(d->availability, d->results, d->oq_index, d->dst_addr, d->query,
++              (VkQueryResultFlagBits)d->flags, d->reports_per_query);
++}
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.h mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.h
+--- mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/libkk/kk_query.h	2026-10-09 20:06:38.282662064 +0300
+@@ -16,6 +16,28 @@
+    uint32_t value;
+ };
+ 
++/* One entry of a batched query reset/copy, see kk_flush_batch. */
++struct libkk_query_reset_desc {
++   DEVICE(uint32_t) availability;
++   DEVICE(uint64_t) results;
++   DEVICE(uint16_t) oq_index;
++   uint32_t query;
++   uint32_t reports_per_query;
++   uint32_t set_available;
++   uint32_t pad;
++};
++
++struct libkk_query_copy_desc {
++   DEVICE(uint32_t) availability;
++   DEVICE(uint64_t) results;
++   DEVICE(uint16_t) oq_index;
++   uint64_t dst_addr;
++   uint32_t query;
++   uint32_t flags;
++   uint32_t reports_per_query;
++   uint32_t pad;
++};
++
+ #define LIBKK_QUERY_UNAVAILABLE (uint64_t)((int64_t)-1)
+ 
+ #endif /* KK_QUERY_H */
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-09 10:27:29.114858423 +0300
-@@ -12,6 +12,32 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.c	2026-10-09 16:04:22.350815166 +0300
+@@ -12,6 +12,34 @@
  
  #include "util/u_memory.h"
  
 +#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
 +#include <stdatomic.h>
 +/* TEMP diagnostics: count BO allocations per call site */
 +#define KK_BO_SITES 64
@@ -772,36 +1383,135 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  VkResult
  kk_alloc_bo(struct kk_device *dev, struct vk_object_base *log_obj,
              uint64_t size_B, uint64_t align_B, struct kk_bo **bo_out)
-@@ -60,6 +86,8 @@
+@@ -60,6 +88,10 @@
  
     kk_device_add_heap_to_residency_set(dev, handle);
  
++   kk_bo_index_add(dev, bo);
++
 +   bo->alloc_site = __builtin_return_address(0);
 +   kk_bo_note(bo->alloc_site, size_B, 1);
     *bo_out = bo;
     return result;
  
-@@ -74,6 +102,8 @@
+@@ -71,9 +103,86 @@
+    return result;
+ }
+ 
++/* Index of the first BO whose GPU address is > addr */
++static uint32_t
++kk_bo_index_upper(struct kk_device *dev, uint64_t addr)
++{
++   uint32_t lo = 0, hi = dev->bo_index.count;
++   while (lo < hi) {
++      uint32_t mid = (lo + hi) / 2;
++      if (dev->bo_index.bos[mid]->gpu <= addr)
++         lo = mid + 1;
++      else
++         hi = mid;
++   }
++   return lo;
++}
++
++void
++kk_bo_index_add(struct kk_device *dev, struct kk_bo *bo)
++{
++   if (!bo->cpu || !bo->gpu)
++      return;
++   simple_mtx_lock(&dev->bo_index.lock);
++   if (dev->bo_index.count == dev->bo_index.capacity) {
++      uint32_t capacity = MAX2(1024u, dev->bo_index.capacity * 2u);
++      struct kk_bo **bos = realloc(dev->bo_index.bos, capacity * sizeof(*bos));
++      if (!bos) {
++         simple_mtx_unlock(&dev->bo_index.lock);
++         return;
++      }
++      dev->bo_index.bos = bos;
++      dev->bo_index.capacity = capacity;
++   }
++   uint32_t i = kk_bo_index_upper(dev, bo->gpu);
++   memmove(&dev->bo_index.bos[i + 1], &dev->bo_index.bos[i],
++           (dev->bo_index.count - i) * sizeof(struct kk_bo *));
++   dev->bo_index.bos[i] = bo;
++   dev->bo_index.count++;
++   bo->indexed = true;
++   simple_mtx_unlock(&dev->bo_index.lock);
++}
++
++static void
++kk_bo_index_remove(struct kk_device *dev, struct kk_bo *bo)
++{
++   if (!bo->indexed)
++      return;
++   simple_mtx_lock(&dev->bo_index.lock);
++   uint32_t i = kk_bo_index_upper(dev, bo->gpu);
++   while (i > 0 && dev->bo_index.bos[i - 1] != bo &&
++          dev->bo_index.bos[i - 1]->gpu == bo->gpu)
++      i--;
++   if (i > 0 && dev->bo_index.bos[i - 1] == bo) {
++      memmove(&dev->bo_index.bos[i - 1], &dev->bo_index.bos[i],
++              (dev->bo_index.count - i) * sizeof(struct kk_bo *));
++      dev->bo_index.count--;
++   }
++   bo->indexed = false;
++   simple_mtx_unlock(&dev->bo_index.lock);
++}
++
++const void *
++kk_bo_index_cpu(struct kk_device *dev, uint64_t addr, uint64_t size_B)
++{
++   const void *ptr = NULL;
++   simple_mtx_lock(&dev->bo_index.lock);
++   uint32_t i = kk_bo_index_upper(dev, addr);
++   if (i > 0) {
++      struct kk_bo *bo = dev->bo_index.bos[i - 1];
++      if (addr + size_B <= bo->gpu + bo->size_B)
++         ptr = (const uint8_t *)bo->cpu + (addr - bo->gpu);
++   }
++   simple_mtx_unlock(&dev->bo_index.lock);
++   return ptr;
++}
++
  void
  kk_destroy_bo(struct kk_device *dev, struct kk_bo *bo)
  {
++   kk_bo_index_remove(dev, bo);
 +   if (bo->alloc_site)
 +      kk_bo_note(bo->alloc_site, bo->size_B, -1);
     /* We may only have a mapped buffer, for example if the memory was imported
      * from a host pointer */
     if (bo->mtl_handle)
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-08 22:39:45.000000000 +0300
-@@ -22,6 +22,7 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_bo.h	2026-10-09 16:04:22.349982031 +0300
+@@ -12,6 +12,7 @@
+ #include "vulkan/vulkan_core.h"
+ 
+ #include <inttypes.h>
++#include <stdbool.h>
+ 
+ struct kk_device;
+ struct vk_object_base;
+@@ -22,6 +23,8 @@
     uint64_t size_B;
     uint64_t gpu; // GPU address
     void *cpu;    // CPU address
 +   void *alloc_site; /* TEMP diagnostics */
++   bool indexed;     /* in dev->bo_index */
  };
  
  struct kk_ptr {
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c
+@@ -38,4 +41,9 @@
+ 
+ void kk_destroy_bo(struct kk_device *dev, struct kk_bo *bo);
+ 
++/* GPU address -> BO lookup, to read (shared, CPU-visible) memory at record
++ * time from a device address. */
++void kk_bo_index_add(struct kk_device *dev, struct kk_bo *bo);
++const void *kk_bo_index_cpu(struct kk_device *dev, uint64_t addr, uint64_t size_B);
++
+ #endif /* KK_BO_H */
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer_view.c	2026-10-08 22:45:22.000000000 +0300
 @@ -20,6 +20,11 @@
@@ -834,7 +1544,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     VK_FROM_HANDLE(kk_device, dev, _device);
     VK_FROM_HANDLE(kk_buffer_view, view, bufferView);
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_buffer.c	2026-10-08 23:51:42.000000000 +0300
 @@ -13,6 +13,11 @@
@@ -895,10 +1605,51 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     }
  
     buffer->vk.device_address =
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c	2026-10-09 11:00:30.387943466 +0300
-@@ -168,9 +168,34 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.c	2026-10-09 23:01:48.196665244 +0300
+@@ -5,6 +5,7 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
++#include "kk_debug.h"
+ #include "kk_cmd_buffer.h"
+ 
+ #include "kk_buffer.h"
+@@ -66,6 +67,7 @@
+    es->allocator = NULL;
+ 
+    util_dynarray_fini(&es->ts_resolves);
++   util_dynarray_fini(&es->batch);
+ }
+ 
+ static void
+@@ -85,6 +87,7 @@
+ 
+    kk_cmd_release_resources(dev, cmd);
+    util_dynarray_fini(&cmd->submit_cmd_bufs);
++   util_dynarray_fini(&cmd->deferred_avail);
+    util_dynarray_fini(&cmd->large_bos);
+ 
+    vk_free(&pool->vk.alloc, cmd);
+@@ -95,6 +98,8 @@
+ {
+    es->allocator = mtl_new_command_allocator(handle);
+    es->ts_resolves = UTIL_DYNARRAY_INIT;
++   es->batch_kind = KK_BATCH_NONE;
++   es->batch = UTIL_DYNARRAY_INIT;
+    return es->allocator != NULL;
+ }
+ 
+@@ -144,6 +149,7 @@
+    }
+ 
+    cmd->submit_cmd_bufs = UTIL_DYNARRAY_INIT;
++   cmd->deferred_avail = UTIL_DYNARRAY_INIT;
+    cmd->large_bos = UTIL_DYNARRAY_INIT;
+ 
+    cmd->vk.dynamic_graphics_state.vi = &cmd->state.gfx._dynamic_vi;
+@@ -168,9 +174,40 @@
     return result;
  }
  
@@ -918,24 +1669,39 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +kk_reset_encoder_state(struct kk_encoder_state *es, mtl_device *handle)
  {
 +   uint64_t size = mtl_command_allocator_get_allocated_size(es->allocator);
++   /* TEMP diagnostics: bytes this allocator grew since its last reset */
++   if (size > es->last_reset_size)
++      kk_perf_add_ns(KK_PERF_ALLOC_GROWTH, size - es->last_reset_size);
++   es->last_reset_size = size;
 +   bool trim = size > KK_CMD_ALLOCATOR_HARD_MAX_SIZE ||
 +               (size > KK_CMD_ALLOCATOR_SOFT_MAX_SIZE &&
 +                ++es->allocator_resets >= KK_CMD_ALLOCATOR_TRIM_INTERVAL);
 +   if (trim) {
 +      mtl_command_allocator *allocator = mtl_new_command_allocator(handle);
 +      if (allocator) {
++         kk_perf_add_ns(KK_PERF_ALLOC_TRIM, 0);
 +         kk_alloc_note(es->allocator, 0); /* TEMP diagnostics */
 +         mtl_release(es->allocator);
 +         es->allocator = allocator;
 +         es->allocator_resets = 0;
++         es->last_reset_size = 0;
 +         return;
 +      }
 +   }
     mtl_command_allocator_reset(es->allocator);
  }
  
-@@ -185,9 +210,9 @@
-    cs_end(cmd);
+@@ -179,15 +216,14 @@
+ {
+    struct kk_device *dev = kk_cmd_buffer_device(cmd);
+ 
+-   /* If the command buffer was not ended, we may have lingering encoders.
+-    * Call twice since post_gfx will be moved to pre_gfx but not ended. */
+-   cs_end(cmd);
+-   cs_end(cmd);
++   /* If the command buffer was not ended, we may have lingering encoders. */
++   util_dynarray_clear(&cmd->deferred_avail);
++   cs_finish(cmd);
     kk_cmd_release_resources(dev, cmd);
  
 -   kk_reset_encoder_state(cmd->pre_gfx);
@@ -947,19 +1713,505 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  
     cmd->uploader.bo = NULL;
     cmd->uploader.offset = 0;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h
+@@ -234,9 +270,7 @@
+ {
+    VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
+ 
+-   /* Call twice since post_gfx will be moved to pre_gfx but not ended. */
+-   cs_end(cmd);
+-   cs_end(cmd);
++   cs_finish(cmd);
+ 
+    return vk_command_buffer_end(&cmd->vk);
+ }
+@@ -253,6 +287,25 @@
+    return (!(access ^ ignore_access)) || (!(stage ^ ignore_stage));
+ }
+ 
++/* Ends the open gfx.cmd_buf (no render encoder may be open) and queues it. */
++static void
++kk_seal_gfx(struct kk_cmd_buffer *cmd)
++{
++   if (!cmd->gfx.cmd_buf || cmd->gfx.encoder)
++      return;
++
++   uint64_t kk_ecb_t0 = kk_perf_now();
++   mtl_end_command_buffer(cmd->gfx.cmd_buf);
++   kk_perf_add(KK_PERF_END_CMDBUF, kk_ecb_t0);
++
++   util_dynarray_append(&cmd->submit_cmd_bufs, cmd->gfx.cmd_buf);
++   cmd->gfx.cmd_buf = NULL;
++   cmd->gfx_cb_encoders = 0;
++}
++
++static void kk_stop_encoder(struct kk_cmd_buffer *cmd,
++                            struct kk_encoder_state *es);
++
+ void
+ cs_start_render(struct kk_cmd_buffer *cmd)
+ {
+@@ -261,10 +314,35 @@
+    uint32_t view_mask = state->render.view_mask;
+    assert(state->render_pass_descriptor);
+ 
+-   cmd->gfx.cmd_buf = mtl_new_command_buffer(dev->mtl_handle);
+-   mtl_begin_command_buffer(cmd->gfx.cmd_buf, cmd->gfx.allocator);
++   KK_PERF_SCOPE(KK_PERF_START_RENDER);
++   kk_perf_add_ns(KK_PERF_RENDER_ENC, 0);
++   /* Work recorded for pre_gfx since the open gfx.cmd_buf was last used must
++    * run between its passes and this one, so it cannot be shared. */
++   if (cmd->pre_gfx->encoder || KK_DEBUG(NO_RP_MERGE))
++      kk_seal_gfx(cmd);
++   uint64_t kk_t0 = kk_perf_now();
++   if (!cmd->gfx.cmd_buf) {
++      cmd->gfx.cmd_buf = mtl_new_command_buffer(dev->mtl_handle);
++      mtl_begin_command_buffer(cmd->gfx.cmd_buf, cmd->gfx.allocator);
++      cmd->gfx_cb_encoders = 0;
++   }
++   cmd->gfx_cb_encoders++;
++   kk_perf_add(KK_PERF_NEW_CB, kk_t0);
++   uint64_t kk_size0 = mtl_command_allocator_get_allocated_size(cmd->gfx.allocator);
++   kk_t0 = kk_perf_now();
+    cmd->gfx.encoder = mtl_new_render_command_encoder_with_descriptor(
+       cmd->gfx.cmd_buf, state->render_pass_descriptor);
++   if (mtl_command_allocator_get_allocated_size(cmd->gfx.allocator) != kk_size0)
++      kk_perf_add(KK_PERF_RENC_GROW, kk_t0);
++   else
++      kk_perf_add(KK_PERF_NEW_RENC, kk_t0);
++
++   /* The producer barrier that ends every encoder only orders later command
++    * buffers; a pass that shares gfx.cmd_buf with earlier ones has to wait
++    * for them itself. */
++   if (cmd->gfx_cb_encoders > 1)
++      mtl_barrier_after_queue_stages(cmd->gfx.encoder, MTL_STAGE_ALL,
++                                     MTL_STAGE_ALL);
+ 
+    uint32_t layer_ids[KK_MAX_MULTIVIEW_VIEW_COUNT] = {};
+    uint32_t count = 0u;
+@@ -300,43 +378,61 @@
+ }
+ 
+ static void
+-kk_start_compute_encoder(struct kk_encoder_state *es, mtl_device *handle,
+-                         mtl_argument_table *argument_table)
++kk_start_compute_encoder(struct kk_cmd_buffer *cmd, struct kk_encoder_state *es)
+ {
+-   es->cmd_buf = mtl_new_command_buffer(handle);
++   struct kk_device *dev = kk_cmd_buffer_device(cmd);
++
++   if (!cmd->gfx.encoder) {
++      /* Between passes: the open gfx.cmd_buf goes before this work. */
++      kk_seal_gfx(cmd);
++   } else if (es == cmd->pre_gfx && cmd->gfx_cb_encoders > 1) {
++      /* pre_gfx work has to run before the current pass, but gfx.cmd_buf
++       * also holds earlier passes that must run before it. Split the pass:
++       * close what we have, and continue in a new command buffer that is
++       * queued after pre_gfx. The stored descriptor already loads. */
++      kk_stop_encoder(cmd, &cmd->gfx);
++      kk_seal_gfx(cmd);
++      cs_start_render(cmd);
++      cmd->gfx_splits++;
++   }
++
++   kk_perf_add_ns(KK_PERF_COMPUTE_ENC, 0);
++   es->cmd_buf = mtl_new_command_buffer(dev->mtl_handle);
+    mtl_begin_command_buffer(es->cmd_buf, es->allocator);
+    es->encoder = mtl_new_compute_command_encoder(es->cmd_buf);
+ 
+    /* Argument table won't ever change */
+-   mtl_compute_set_argument_table(es->encoder, argument_table);
++   mtl_compute_set_argument_table(es->encoder, cmd->argument_table);
+ }
+ 
+-mtl_compute_encoder *
+-cs_get_compute(struct kk_cmd_buffer *cmd, bool pre_gfx)
++static void kk_flush_deferred_avail(struct kk_cmd_buffer *cmd);
++
++/* Picks (and starts if needed) the compute encoder state for `pre_gfx`
++ * without flushing its pending batch. */
++struct kk_encoder_state *
++kk_batch_encoder_state(struct kk_cmd_buffer *cmd, bool pre_gfx)
+ {
+-   struct kk_device *dev = kk_cmd_buffer_device(cmd);
+-   mtl_compute_encoder *encoder;
+    /* If we are not inside a render, we can just take pre_gfx. */
+-   if (!cmd->gfx.encoder || pre_gfx) {
+-      if (!cmd->pre_gfx->encoder) {
+-         kk_start_compute_encoder(cmd->pre_gfx, dev->mtl_handle,
+-                                  cmd->argument_table);
+-      }
+-      encoder = cmd->pre_gfx->encoder;
+-   } else {
+-      if (!cmd->post_gfx->encoder) {
+-         kk_start_compute_encoder(cmd->post_gfx, dev->mtl_handle,
+-                                  cmd->argument_table);
+-      }
+-      encoder = cmd->post_gfx->encoder;
+-   }
++   struct kk_encoder_state *es =
++      !cmd->gfx.encoder || pre_gfx ? cmd->pre_gfx : cmd->post_gfx;
++   if (!es->encoder)
++      kk_start_compute_encoder(cmd, es);
++   return es;
++}
+ 
+-   return encoder;
++mtl_compute_encoder *
++cs_get_compute(struct kk_cmd_buffer *cmd, bool pre_gfx)
++{
++   kk_flush_deferred_avail(cmd);
++   struct kk_encoder_state *es = kk_batch_encoder_state(cmd, pre_gfx);
++   kk_flush_batch(cmd, es);
++   return es->encoder;
+ }
+ 
+ static void
+ kk_stop_encoder(struct kk_cmd_buffer *cmd, struct kk_encoder_state *es)
+ {
++   kk_flush_batch(cmd, es);
+    /* TODO_KOSMICKRISP This is probably overkill */
+    mtl_barrier_after_stages(es->encoder, MTL_STAGE_ALL, MTL_STAGE_ALL);
+    mtl_end_encoding(es->encoder);
+@@ -351,7 +447,13 @@
+ 
+    util_dynarray_clear(&es->ts_resolves);
+ 
++   /* gfx.cmd_buf stays open for following passes, see kk_seal_gfx. */
++   if (es == &cmd->gfx)
++      return;
++
++   uint64_t kk_ecb_t0 = kk_perf_now();
+    mtl_end_command_buffer(es->cmd_buf);
++   kk_perf_add(KK_PERF_END_CMDBUF, kk_ecb_t0);
+ 
+    util_dynarray_append(&cmd->submit_cmd_bufs, es->cmd_buf);
+    es->cmd_buf = NULL;
+@@ -360,8 +462,13 @@
+ void
+ cs_end(struct kk_cmd_buffer *cmd)
+ {
++   KK_PERF_SCOPE(KK_PERF_CS_END);
+    assert(cmd);
+ 
++   /* A promoted post_gfx must run after the passes in the open gfx.cmd_buf. */
++   if (!cmd->gfx.encoder)
++      kk_seal_gfx(cmd);
++
+    if (cmd->pre_gfx->encoder) {
+       /* Submit pre_gfx now that its encoder is closed. Command buffers are
+        * appended here (rather than at creation) so submit_cmd_bufs stays in
+@@ -385,6 +492,50 @@
+ }
+ 
+ void
++cs_finish(struct kk_cmd_buffer *cmd)
++{
++   kk_flush_deferred_avail(cmd);
++   /* Twice since post_gfx is moved to pre_gfx but not ended. */
++   cs_end(cmd);
++   cs_end(cmd);
++   kk_seal_gfx(cmd);
++}
++
++void
++kk_defer_avail_write(struct kk_cmd_buffer *cmd, uint64_t address,
++                     uint32_t value)
++{
++   if (KK_DEBUG(NO_DEFER_AVAIL)) {
++      kk_cmd_write(cmd, (struct libkk_imm_write){address, value});
++      return;
++   }
++   struct libkk_imm_write write = {address, value};
++   util_dynarray_append(&cmd->deferred_avail, write);
++}
++
++/* Emits the deferred availability writes, but only outside a render pass so
++ * they land after the passes their queries ended in. */
++static void
++kk_flush_deferred_avail(struct kk_cmd_buffer *cmd)
++{
++   if (cmd->gfx.encoder || !cmd->deferred_avail.size)
++      return;
++
++   struct util_dynarray writes = cmd->deferred_avail;
++   cmd->deferred_avail = UTIL_DYNARRAY_INIT;
++   util_dynarray_foreach(&writes, struct libkk_imm_write, w)
++      kk_batch_write(cmd, true, w->address, w->value);
++   util_dynarray_clear(&writes);
++   /* Keep the allocation for the next ones. */
++   if (!cmd->deferred_avail.size) {
++      util_dynarray_fini(&cmd->deferred_avail);
++      cmd->deferred_avail = writes;
++   } else {
++      util_dynarray_fini(&writes);
++   }
++}
++
++void
+ kk_cmd_bind_root_to_argument_table(struct kk_cmd_buffer *cmd, uint64_t addr)
+ {
+    mtl_set_address(cmd->argument_table, addr, 0u);
+@@ -395,6 +546,7 @@
+ kk_CmdPipelineBarrier2(VkCommandBuffer commandBuffer,
+                        const VkDependencyInfo *pDependencyInfo)
+ {
++   KK_PERF_SCOPE(KK_PERF_BARRIER);
+    VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
+ 
+    /* TODO_KOSMICKRISP Don't break the render pass and add a single encoder
+@@ -402,9 +554,11 @@
+     * requires not reading input attachments as textures.
+     */
+    if (cmd->gfx.encoder) {
++      kk_perf_add_ns(KK_PERF_BARRIER_SPLIT, 0);
+       cs_end(cmd);
+       cs_start_render(cmd);
+    } else if (cmd->pre_gfx->encoder) {
++      kk_flush_batch(cmd, cmd->pre_gfx);
+       /* We chain encoders, so an intra-encoder barrier is enough here:
+        * no need to tear down and recreate the encoder.
+        */
+@@ -725,15 +879,15 @@
+    desc->push_dirty = 0;
+ }
+ 
+-void
+-kk_dispatch_precomp(struct kk_cmd_buffer *cmd, struct kk_grid grid,
+-                    bool pre_gfx, enum libkk_program idx, void *data,
+-                    size_t data_size)
++static void
++kk_dispatch_precomp_on(struct kk_cmd_buffer *cmd, mtl_compute_encoder *encoder,
++                       struct kk_grid grid, enum libkk_program idx, void *data,
++                       size_t data_size)
+ {
++   kk_perf_precomp(idx);
+    struct kk_device *dev = kk_cmd_buffer_device(cmd);
+    struct kk_precompiled_shader *prog = &dev->precompiled_cache.shaders[idx];
+ 
+-   mtl_compute_encoder *encoder = cs_get_compute(cmd, pre_gfx);
+    mtl_barrier_after_encoder_stages(encoder, MTL_STAGE_DISPATCH,
+                                     MTL_STAGE_DISPATCH);
+ 
+@@ -763,11 +917,137 @@
+ }
+ 
+ void
++kk_dispatch_precomp(struct kk_cmd_buffer *cmd, struct kk_grid grid,
++                    bool pre_gfx, enum libkk_program idx, void *data,
++                    size_t data_size)
++{
++   mtl_compute_encoder *encoder = cs_get_compute(cmd, pre_gfx);
++   kk_dispatch_precomp_on(cmd, encoder, grid, idx, data, data_size);
++}
++
++/* Batches are flushed once they get this large. */
++#define KK_BATCH_MAX_ENTRIES 4096
++
++void
++kk_flush_batch(struct kk_cmd_buffer *cmd, struct kk_encoder_state *es)
++{
++   if (es->batch_kind == KK_BATCH_NONE)
++      return;
++
++   enum libkk_program prog;
++   size_t entry_size;
++   switch (es->batch_kind) {
++   case KK_BATCH_WRITE:
++      prog = LIBKK_WRITE_U32_ARRAY;
++      entry_size = sizeof(struct libkk_imm_write);
++      break;
++   case KK_BATCH_RESET:
++      prog = LIBKK_RESET_QUERY_ARRAY;
++      entry_size = sizeof(struct libkk_query_reset_desc);
++      break;
++   case KK_BATCH_COPY:
++      prog = LIBKK_COPY_QUERIES_ARRAY;
++      entry_size = sizeof(struct libkk_query_copy_desc);
++      break;
++   default:
++      UNREACHABLE("invalid batch kind");
++   }
++   bool copy = es->batch_kind == KK_BATCH_COPY;
++   uint32_t count = es->batch.size / entry_size;
++   struct kk_ptr entries = kk_pool_upload(cmd, es->batch.data, es->batch.size, 8u);
++   es->batch_kind = KK_BATCH_NONE;
++   util_dynarray_clear(&es->batch);
++   if (unlikely(!entries.gpu))
++      return;
++
++   /* Timestamp results are resolved on the blit stage, see
++    * kk_CmdCopyQueryPoolResults. */
++   if (copy)
++      mtl_barrier_after_queue_stages(es->encoder, MTL_STAGE_BLIT,
++                                     MTL_STAGE_DISPATCH);
++
++   uint64_t args = entries.gpu;
++   kk_dispatch_precomp_on(cmd, es->encoder, kk_grid_1d(count), prog, &args,
++                          sizeof(args));
++}
++
++/* Returns the encoder state that `kind` should be appended to, flushing
++ * whatever is pending there if it is of another kind or full. */
++static struct kk_encoder_state *
++kk_batch_begin(struct kk_cmd_buffer *cmd, bool pre_gfx, enum kk_batch_kind kind,
++               size_t entry_size)
++{
++   kk_flush_deferred_avail(cmd);
++   struct kk_encoder_state *es = kk_batch_encoder_state(cmd, pre_gfx);
++   if (es->batch_kind != kind ||
++       es->batch.size / entry_size >= KK_BATCH_MAX_ENTRIES)
++      kk_flush_batch(cmd, es);
++   es->batch_kind = kind;
++   return es;
++}
++
++void
++kk_batch_write(struct kk_cmd_buffer *cmd, bool pre_gfx, uint64_t address,
++               uint32_t value)
++{
++   if (KK_DEBUG(NO_QUERY_BATCH)) {
++      libkk_write_u32(cmd, kk_grid_1d(1), pre_gfx, address, value);
++      return;
++   }
++   struct kk_encoder_state *es =
++      kk_batch_begin(cmd, pre_gfx, KK_BATCH_WRITE, sizeof(struct libkk_imm_write));
++   /* Entries run in parallel, so a second write to the same address has to
++    * land in a later dispatch. */
++   util_dynarray_foreach(&es->batch, struct libkk_imm_write, w) {
++      if (w->address == address) {
++         kk_flush_batch(cmd, es);
++         es->batch_kind = KK_BATCH_WRITE;
++         break;
++      }
++   }
++   struct libkk_imm_write write = {address, value};
++   util_dynarray_append(&es->batch, write);
++}
++
++void
++kk_batch_reset_query(struct kk_cmd_buffer *cmd, bool pre_gfx,
++                     const struct libkk_query_reset_desc *desc)
++{
++   struct kk_encoder_state *es = kk_batch_begin(
++      cmd, pre_gfx, KK_BATCH_RESET, sizeof(struct libkk_query_reset_desc));
++   util_dynarray_foreach(&es->batch, struct libkk_query_reset_desc, d) {
++      if (d->availability == desc->availability && d->results == desc->results &&
++          d->query == desc->query) {
++         kk_flush_batch(cmd, es);
++         es->batch_kind = KK_BATCH_RESET;
++         break;
++      }
++   }
++   util_dynarray_append(&es->batch, *desc);
++}
++
++void
++kk_batch_copy_query(struct kk_cmd_buffer *cmd, bool pre_gfx,
++                    const struct libkk_query_copy_desc *desc)
++{
++   struct kk_encoder_state *es = kk_batch_begin(
++      cmd, pre_gfx, KK_BATCH_COPY, sizeof(struct libkk_query_copy_desc));
++   /* A result is at most 2 * 8 bytes (value and availability). */
++   util_dynarray_foreach(&es->batch, struct libkk_query_copy_desc, d) {
++      if (d->dst_addr < desc->dst_addr + 16 && desc->dst_addr < d->dst_addr + 16) {
++         kk_flush_batch(cmd, es);
++         es->batch_kind = KK_BATCH_COPY;
++         break;
++      }
++   }
++   util_dynarray_append(&es->batch, *desc);
++}
++
++void
+ kk_cmd_write(struct kk_cmd_buffer *cmd, struct libkk_imm_write write)
+ {
+    /* If we are mid render, it must go to post_gfx */
+-   libkk_write_u32(cmd, kk_grid_1d(1), !cmd->gfx.encoder, write.address,
+-                   write.value);
++   kk_batch_write(cmd, !cmd->gfx.encoder, write.address, write.value);
+ }
+ 
+ VKAPI_ATTR void VKAPI_CALL
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h	2026-10-09 11:00:12.393596948 +0300
-@@ -209,6 +209,8 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_buffer.h	2026-10-09 22:49:18.534825379 +0300
+@@ -205,13 +205,29 @@
+    uint64_t dst_addr;
+ };
+ 
++/* Tiny compute jobs (query resets/copies, availability and event writes) that
++ * are collected and dispatched as a single precomp job, see kk_flush_batch. */
++enum kk_batch_kind {
++   KK_BATCH_NONE,
++   KK_BATCH_WRITE, /* struct libkk_imm_write */
++   KK_BATCH_RESET, /* struct libkk_query_reset_desc */
++   KK_BATCH_COPY,  /* struct libkk_query_copy_desc */
++};
++
+ struct kk_encoder_state {
     /* either a mtl_compute_encoder or a mtl_render_encoder */
     mtl_command_encoder *encoder;
     mtl_command_allocator *allocator;
++   uint64_t last_reset_size; /* TEMP diagnostics */
 +   /* Resets since the allocator was last trimmed, see kk_reset_encoder_state */
 +   uint32_t allocator_resets;
     mtl_command_buffer *cmd_buf;
     /* Pending timestamp resolves (struct kk_ts_resolve), flushed at cs_end. */
     struct util_dynarray ts_resolves;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_dispatch.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_dispatch.c
++   /* Pending batch of a single kind, flushed before anything else is encoded
++    * into `encoder` and before the encoder ends. */
++   enum kk_batch_kind batch_kind;
++   struct util_dynarray batch;
+ };
+ 
+ struct kk_cmd_buffer {
+@@ -242,6 +258,19 @@
+ 
+    struct util_dynarray submit_cmd_bufs;
+ 
++   /* Consecutive render passes share one MTL4 command buffer: every command
++    * buffer grabs a few MB from its allocator, and creating encoders in fresh
++    * ones is what made render pass begins slow. gfx.cmd_buf stays open after
++    * its encoder ends until other work has to be ordered after it. */
++   uint32_t gfx_cb_encoders; /* render encoders in the open gfx.cmd_buf */
++   uint32_t gfx_splits;      /* bumped when pre-render work splits a pass */
++
++   /* Query availability writes from vkCmdEndQuery (struct libkk_imm_write).
++    * Only readers outside the render pass care, so they are emitted with the
++    * next compute work outside a render pass instead of needing a post_gfx
++    * encoder after every pass, which would prevent sharing gfx.cmd_buf. */
++   struct util_dynarray deferred_avail;
++
+    /* Owned large BOs */
+    struct util_dynarray large_bos;
+ 
+@@ -291,6 +320,10 @@
+ mtl_render_encoder *cs_get_render(struct kk_cmd_buffer *cmd);
+ mtl_compute_encoder *cs_get_compute(struct kk_cmd_buffer *cmd, bool pre_gfx);
+ void cs_end(struct kk_cmd_buffer *cmd);
++/* Closes every encoder and command buffer, ready for submission */
++void cs_finish(struct kk_cmd_buffer *cmd);
++void kk_defer_avail_write(struct kk_cmd_buffer *cmd, uint64_t address,
++                          uint32_t value);
+ void kk_cmd_bind_root_to_argument_table(struct kk_cmd_buffer *cmd,
+                                         uint64_t addr);
+ 
+@@ -387,4 +420,14 @@
+ 
+ void kk_cmd_write(struct kk_cmd_buffer *cmd, struct libkk_imm_write write);
+ 
++struct kk_encoder_state *kk_batch_encoder_state(struct kk_cmd_buffer *cmd,
++                                                bool pre_gfx);
++void kk_batch_write(struct kk_cmd_buffer *cmd, bool pre_gfx, uint64_t address,
++                    uint32_t value);
++void kk_batch_reset_query(struct kk_cmd_buffer *cmd, bool pre_gfx,
++                          const struct libkk_query_reset_desc *desc);
++void kk_batch_copy_query(struct kk_cmd_buffer *cmd, bool pre_gfx,
++                         const struct libkk_query_copy_desc *desc);
++void kk_flush_batch(struct kk_cmd_buffer *cmd, struct kk_encoder_state *es);
++
+ #endif
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_dispatch.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_dispatch.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_dispatch.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_dispatch.c	2026-10-09 11:18:17.528700778 +0300
 @@ -63,6 +63,7 @@
@@ -978,10 +2230,149 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
  
     struct kk_descriptor_state *desc = &cmd->state.cs.descriptors;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c	2026-10-09 11:18:17.527968653 +0300
-@@ -1938,6 +1938,7 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_cmd_draw.c	2026-10-09 22:49:44.718489038 +0300
+@@ -7,6 +7,7 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
++#include "kk_debug.h"
+ #include "kk_entrypoints.h"
+ 
+ #include "kk_buffer.h"
+@@ -226,6 +227,7 @@
+ kk_CmdBeginRendering(VkCommandBuffer commandBuffer,
+                      const VkRenderingInfo *pRenderingInfo)
+ {
++   KK_PERF_SCOPE(KK_PERF_RENDERING);
+    VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
+    struct kk_device *dev = kk_cmd_buffer_device(cmd);
+    struct vk_dynamic_graphics_state *dyn = &cmd->vk.dynamic_graphics_state;
+@@ -287,8 +289,10 @@
+    vk_cmd_set_rendering_attachment_locations(&cmd->vk, &ral_info);
+ 
+    kk_cmd_buffer_dirty_render_pass(cmd);
++   uint64_t kk_rpd_t0 = kk_perf_now();
+    mtl_render_pass_descriptor *pass_descriptor =
+       mtl_new_render_pass_descriptor();
++   kk_perf_add(KK_PERF_NEW_RPD, kk_rpd_t0);
+ 
+    /* Framebufferless rendering, need to set pass_descriptors
+     * renderTargetWidth/Height to non-0 values and defaultRasterSampleCount.
+@@ -474,6 +478,7 @@
+          .layerCount = render->view_mask ? 1 : render->layer_count,
+       };
+ 
++      KK_PERF_SCOPE(KK_PERF_CLEAR);
+       kk_CmdClearAttachments(kk_cmd_buffer_to_handle(cmd), clear_count,
+                              clear_att, 1, &clear_rect);
+    }
+@@ -483,6 +488,7 @@
+ kk_CmdEndRendering2KHR(VkCommandBuffer commandBuffer,
+                        UNUSED const VkRenderingEndInfoKHR *pRenderingEndInfo)
+ {
++   KK_PERF_SCOPE(KK_PERF_RP_END);
+    VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
+    struct kk_rendering_state *render = &cmd->state.gfx.render;
+    bool need_resolve = false;
+@@ -1664,6 +1670,40 @@
+ }
+ 
+ static bool
++kk_list_draw_has_restart(struct kk_device *dev,
++                         const struct kk_draw_command *data)
++{
++   const uint32_t el = data->index_buffer_el_size_B;
++   for (uint32_t i = 0; i < data->draw_count; i++) {
++      const VkDrawIndexedIndirectCommand *draw = &data->indexed_draws[i];
++      if (draw->indexCount == 0)
++         continue;
++      uint64_t offset = (uint64_t)draw->firstIndex * el;
++      uint64_t size = (uint64_t)draw->indexCount * el;
++      if (offset + size > data->index_buffer.range)
++         return true;
++      const void *ptr =
++         kk_bo_index_cpu(dev, data->index_buffer.addr + offset, size);
++      if (!ptr)
++         return true;
++      if (el == 2) {
++         const uint16_t *idx = ptr, r = (uint16_t)data->restart_index;
++         for (uint32_t j = 0; j < draw->indexCount; j++)
++            if (idx[j] == r)
++               return true;
++      } else if (el == 4) {
++         const uint32_t *idx = ptr, r = data->restart_index;
++         for (uint32_t j = 0; j < draw->indexCount; j++)
++            if (idx[j] == r)
++               return true;
++      } else {
++         return true;
++      }
++   }
++   return false;
++}
++
++static bool
+ requires_unroll_restart(struct kk_cmd_buffer *cmd,
+                         const struct kk_draw_command *data)
+ {
+@@ -1683,7 +1723,15 @@
+        * restart flag enabled while using list primitives without any restarts,
+        * and in these cases we can avoid the cost of unroll, even though they
+        * are technically against spec. */
+-      return dev->vk.enabled_features.primitiveTopologyListRestart;
++      if (!dev->vk.enabled_features.primitiveTopologyListRestart)
++         return false;
++      if (!KK_DEBUG(NO_LIST_RESTART_UNROLL) || data->indirect)
++         return true;
++      /* Index buffers live in shared memory, so look for the restart index on
++       * the CPU and only unroll draws that actually contain it. Zink leaves
++       * restart enabled for GL list draws, and unrolling all of them costs a
++       * compute pass per draw. */
++      return kk_list_draw_has_restart(dev, data);
+    default:
+       break;
+    }
+@@ -1902,6 +1950,9 @@
+ kk_draw(struct kk_cmd_buffer *cmd, struct kk_draw_command *data)
+ {
+    kk_flush_gfx_state(cmd);
++   /* Pre-render compute work below may split the pass (see
++    * kk_start_compute_encoder); the new encoder then needs all state again. */
++   uint32_t splits = cmd->gfx_splits;
+ 
+    data->restart = cmd->vk.dynamic_graphics_state.ia.primitive_restart_enable;
+    data->restart_index =
+@@ -1919,6 +1970,16 @@
+                                     requires_index_promotion(data) ||
+                                     requires_unroll_robustness(cmd, data) ||
+                                     requires_unroll_restart(cmd, data));
++   /* TEMP diagnostics: why draws get unrolled (p40.. in kkperf2) */
++   if (requires_unroll) {
++      if (data->prim == MESA_PRIM_TRIANGLE_FAN) kk_perf_precomp(40);
++      if (requires_index_promotion(data))
++         kk_perf_precomp(data->index_buffer_el_size_B == 1 ? 41 : 42);
++      if (requires_unroll_robustness(cmd, data))
++         kk_perf_precomp((data->index_buffer.addr == 0u || data->index_buffer.range == 0u) ? 43 :
++                         data->indirect ? 44 : 45);
++      if (requires_unroll_restart(cmd, data)) kk_perf_precomp(46);
++   }
+    if (requires_unroll && !kk_unroll_geometry(cmd, data))
+       return;
+ 
+@@ -1930,6 +1991,10 @@
+ 
+       if (tess)
+          draw_data = kk_launch_tess(cmd, draw_data);
++      if (cmd->gfx_splits != splits) {
++         kk_flush_gfx_state(cmd);
++         splits = cmd->gfx_splits;
++      }
+       kk_dispatch_draw(cmd, draw_data);
+    }
+ }
+@@ -1938,6 +2003,7 @@
  kk_CmdDraw(VkCommandBuffer commandBuffer, uint32_t vertexCount,
             uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
  {
@@ -989,7 +2380,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     /* Metal validation dislikes empty calls */
     if (instanceCount == 0 || vertexCount == 0)
        return;
-@@ -1972,6 +1973,7 @@
+@@ -1972,6 +2038,7 @@
                     uint32_t instanceCount, uint32_t firstInstance,
                     uint32_t stride)
  {
@@ -997,7 +2388,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     /* Metal validation dislikes empty calls */
     if (drawCount == 0 || instanceCount == 0)
        return;
-@@ -2026,6 +2028,7 @@
+@@ -2026,6 +2093,7 @@
                    uint32_t instanceCount, uint32_t firstIndex,
                    int32_t vertexOffset, uint32_t firstInstance)
  {
@@ -1005,7 +2396,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     /* Metal validation dislikes empty calls */
     if (instanceCount == 0 || indexCount == 0)
        return;
-@@ -2066,6 +2069,7 @@
+@@ -2066,6 +2134,7 @@
                            uint32_t instanceCount, uint32_t firstInstance,
                            uint32_t stride, const int32_t *pVertexOffset)
  {
@@ -1013,7 +2404,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     /* Metal validation dislikes empty calls */
     if (drawCount == 0 || instanceCount == 0)
        return;
-@@ -2124,6 +2128,7 @@
+@@ -2124,6 +2193,7 @@
  kk_CmdDrawIndirect2KHR(VkCommandBuffer commandBuffer,
                         const VkDrawIndirect2InfoKHR *pInfo)
  {
@@ -1021,7 +2412,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     if (pInfo->drawCount == 0)
        return;
  
-@@ -2153,6 +2158,7 @@
+@@ -2153,6 +2223,7 @@
  kk_CmdDrawIndexedIndirect2KHR(VkCommandBuffer commandBuffer,
                                const VkDrawIndirect2InfoKHR *pInfo)
  {
@@ -1029,7 +2420,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     if (pInfo->drawCount == 0)
        return;
  
-@@ -2185,6 +2191,7 @@
+@@ -2185,6 +2256,7 @@
  kk_CmdDrawIndirectCount2KHR(VkCommandBuffer commandBuffer,
                              const VkDrawIndirectCount2InfoKHR *pInfo)
  {
@@ -1037,7 +2428,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     if (pInfo->maxDrawCount == 0)
        return;
  
-@@ -2216,6 +2223,7 @@
+@@ -2216,6 +2288,7 @@
  kk_CmdDrawIndexedIndirectCount2KHR(VkCommandBuffer commandBuffer,
                                     const VkDrawIndirectCount2InfoKHR *pInfo)
  {
@@ -1045,32 +2436,50 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     if (pInfo->maxDrawCount == 0)
        return;
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c	2026-10-09 14:59:02.409299449 +0300
-@@ -11,6 +11,7 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.c	2026-10-09 23:01:48.195756921 +0300
+@@ -11,6 +11,12 @@
     {"nir", KK_DEBUG_NIR},
     {"msl", KK_DEBUG_MSL},
     {"force_robustness", KK_DEBUG_FORCE_ROBUSTNESS},
 +   {"no_robustness", KK_DEBUG_NO_ROBUSTNESS},
++   {"no_list_restart_unroll", KK_DEBUG_NO_LIST_RESTART_UNROLL},
++   {"safe_math", KK_DEBUG_SAFE_MATH},
++   {"no_query_batch", KK_DEBUG_NO_QUERY_BATCH},
++   {"no_rp_merge", KK_DEBUG_NO_RP_MERGE},
++   {"no_defer_avail", KK_DEBUG_NO_DEFER_AVAIL},
     {NULL, 0},
  };
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h	2026-10-09 14:59:02.409015826 +0300
-@@ -12,6 +12,8 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_debug.h	2026-10-09 23:01:48.195473882 +0300
+@@ -12,6 +12,21 @@
     KK_DEBUG_MSL = 1ull << 1,
     /* Forces robustness for all shaders */
     KK_DEBUG_FORCE_ROBUSTNESS = 1ull << 2,
 +   /* Don't advertise buffer robustness, so shaders skip bounds checks */
 +   KK_DEBUG_NO_ROBUSTNESS = 1ull << 3,
++   /* Don't unroll list draws just because primitive restart is enabled.
++    * Zink enables restart (and primitiveTopologyListRestart) for GL, which
++    * otherwise sends nearly every indexed list draw through a compute unroll
++    * pass, although lists practically never contain the restart index. */
++   KK_DEBUG_NO_LIST_RESTART_UNROLL = 1ull << 4,
++   /* Compile shaders with Metal's safe math instead of fast math */
++   KK_DEBUG_SAFE_MATH = 1ull << 5,
++   /* Dispatch query resets/copies and small writes one by one */
++   KK_DEBUG_NO_QUERY_BATCH = 1ull << 6,
++   /* One MTL4 command buffer per render pass, as before */
++   KK_DEBUG_NO_RP_MERGE = 1ull << 7,
++   /* Write query availability at vkCmdEndQuery instead of deferring it */
++   KK_DEBUG_NO_DEFER_AVAIL = 1ull << 8,
  };
  
  extern enum kk_debug kk_mesa_debug_flags;
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-08 22:47:33.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device_memory.c	2026-10-09 16:04:22.351196754 +0300
 @@ -21,6 +21,11 @@
  #include <inttypes.h>
  #include <sys/mman.h>
@@ -1096,7 +2505,15 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  
     if (import_metal || import_host) {
        mem->bo = CALLOC_STRUCT(kk_bo);
-@@ -166,6 +177,8 @@
+@@ -140,6 +151,7 @@
+ 
+       mem->bo->gpu = mtl_buffer_get_gpu_address(mem->bo->map);
+       mem->bo->cpu = mtl_get_contents(mem->bo->map);
++      kk_bo_index_add(dev, mem->bo);
+    } else {
+       result =
+          kk_alloc_bo(dev, &dev->vk.base, aligned_size, alignment, &mem->bo);
+@@ -166,6 +178,8 @@
     if (!mem)
        return;
  
@@ -1105,7 +2522,53 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     kk_destroy_bo(dev, mem->bo);
  
     vk_device_memory_destroy(&dev->vk, pAllocator, &mem->vk);
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.c	2026-10-09 16:04:22.350444828 +0300
+@@ -313,6 +313,7 @@
+ 
+    /* We need to initialize the device residency set before any bo is created. */
+    simple_mtx_init(&dev->residency_set.mutex, mtx_plain);
++   simple_mtx_init(&dev->bo_index.lock, mtx_plain);
+    dev->residency_set.handle = mtl_new_residency_set(dev->mtl_handle);
+    if (dev->residency_set.handle == NULL)
+       goto fail_compiler;
+@@ -360,6 +361,8 @@
+ fail_vab_memory:
+    mtl_release(dev->residency_set.handle);
+    simple_mtx_destroy(&dev->residency_set.mutex);
++   free(dev->bo_index.bos);
++   simple_mtx_destroy(&dev->bo_index.lock);
+ fail_compiler:
+    kk_release_compiler(dev);
+ fail_init:
+@@ -401,6 +404,8 @@
+    /* Release the residency set last once all BOs are released. */
+    mtl_release(dev->residency_set.handle);
+    simple_mtx_destroy(&dev->residency_set.mutex);
++   free(dev->bo_index.bos);
++   simple_mtx_destroy(&dev->bo_index.lock);
+ 
+    kk_release_compiler(dev);
+ 
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.h
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_device.h	2026-10-09 16:04:22.350136991 +0300
+@@ -92,6 +92,13 @@
+     * recording as required by Metal. */
+    struct kk_residency_set residency_set;
+ 
++   /* All BOs sorted by GPU address, see kk_bo_index_* */
++   struct {
++      simple_mtx_t lock;
++      struct kk_bo **bos;
++      uint32_t count, capacity;
++   } bo_index;
++
+    struct kk_precompiled_cache precompiled_cache;
+ 
+    bool has_queue;
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image_view.c	2026-10-08 22:45:22.000000000 +0300
 @@ -18,6 +18,11 @@
@@ -1138,7 +2601,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     VK_FROM_HANDLE(kk_device, dev, _device);
     VK_FROM_HANDLE(kk_image_view, view, imageView);
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_image.c	2026-10-08 22:45:22.000000000 +0300
 @@ -21,6 +21,11 @@
@@ -1171,7 +2634,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     VK_FROM_HANDLE(kk_device, dev, device);
     VK_FROM_HANDLE(kk_image, image, _image);
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_physical_device.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_physical_device.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_physical_device.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_physical_device.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_physical_device.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_physical_device.c	2026-10-09 14:59:10.679436155 +0300
 @@ -9,6 +9,7 @@
@@ -1195,16 +2658,17 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  
     struct vk_properties properties;
     kk_get_device_properties(pdev, instance, &properties);
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h	2026-10-09 12:01:59.827058308 +0300
-@@ -54,4 +54,15 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h	2026-10-09 22:33:37.737964342 +0300
+@@ -54,4 +54,16 @@
     uint64_t range;
  };
  
 +/* TEMP diagnostics: per-frame CPU cost of KosmicKrisp entrypoints */
 +#include <time.h>
-+enum { KK_PERF_DRAW, KK_PERF_DISPATCH, KK_PERF_SUBMIT, KK_PERF_ACQUIRE, KK_PERF_GPU, KK_PERF_SYNC_WAIT, KK_PERF_QUERY_WAIT, KK_PERF_COUNT };
++enum { KK_PERF_DRAW, KK_PERF_DISPATCH, KK_PERF_SUBMIT, KK_PERF_ACQUIRE, KK_PERF_GPU, KK_PERF_SYNC_WAIT, KK_PERF_QUERY_WAIT, KK_PERF_RENDER_ENC, KK_PERF_COMPUTE_ENC, KK_PERF_BARRIER_SPLIT, KK_PERF_PRECOMP, KK_PERF_RENDERING, KK_PERF_BARRIER, KK_PERF_RP_END, KK_PERF_CS_END, KK_PERF_END_CMDBUF, KK_PERF_CLEAR, KK_PERF_NEW_RPD, KK_PERF_START_RENDER, KK_PERF_NEW_CB, KK_PERF_NEW_RENC, KK_PERF_RENC_GROW, KK_PERF_ALLOC_TRIM, KK_PERF_ALLOC_GROWTH, KK_PERF_COUNT };
++void kk_perf_precomp(unsigned idx);
 +void kk_perf_add_ns(int slot, uint64_t ns);
 +void kk_perf_add(int slot, uint64_t t0_ns);
 +static inline uint64_t kk_perf_now(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
@@ -1214,10 +2678,18 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +   struct kk_perf_scope _kk_perf __attribute__((cleanup(kk_perf_scope_end))) = { (slot_), kk_perf_now() }
 +
  #endif
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-09 12:01:59.828276144 +0300
-@@ -19,6 +19,55 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_query_pool.c	2026-10-09 22:49:44.716957146 +0300
+@@ -7,6 +7,7 @@
+  * SPDX-License-Identifier: MIT
+  */
+ 
++#include "kk_debug.h"
+ #include "kk_query_pool.h"
+ 
+ #include "kk_bo.h"
+@@ -19,6 +20,62 @@
  
  #include "kosmickrisp/bridge/mtl_bridge.h"
  
@@ -1231,6 +2703,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +/* Metal does not seem to give back counter heap memory promptly, and apps
 + * (zink) create and destroy timestamp pools constantly, so recycle heaps. */
 +#include "util/simple_mtx.h"
++#include <stdlib.h>
 +#define KK_TS_HEAP_CACHE 256
 +static struct { mtl_counter_heap *heap; uint32_t count; } kk_ts_heap_cache[KK_TS_HEAP_CACHE];
 +static unsigned kk_ts_heap_cache_n;
@@ -1249,6 +2722,12 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +      }
 +   }
 +   simple_mtx_unlock(&kk_ts_heap_cache_mtx);
++   /* Metal frame capture refuses to start while MTL4 counter heaps exist. */
++   static int capture_enabled = -1;
++   if (capture_enabled < 0)
++      capture_enabled = getenv("MTL_CAPTURE_ENABLED") != NULL;
++   if (capture_enabled)
++      return NULL;
 +   return mtl_new_timestamp_counter_heap(dev->mtl_handle, count);
 +}
 +
@@ -1273,7 +2752,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  struct kk_query_report {
     uint64_t value;
  };
-@@ -154,37 +203,60 @@
+@@ -154,37 +211,60 @@
  
     result = kk_alloc_bo(dev, &dev->vk.base, bo_size, 8, &pool->bo);
     if (result != VK_SUCCESS) {
@@ -1343,7 +2822,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
        }
        pool->ts.stage_map = UTIL_DYNARRAY_INIT;
  
-@@ -217,9 +289,13 @@
+@@ -217,9 +297,13 @@
        for (unsigned i = 0; i < pool->oq.queries; ++i) {
           kk_query_table_remove(dev, &dev->occlusion_queries, remap_index[i]);
        }
@@ -1358,7 +2837,40 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
        util_dynarray_fini(&pool->ts.stage_map);
     }
  
-@@ -340,7 +416,7 @@
+@@ -238,6 +322,10 @@
+    host_zero_queries(dev, pool, firstQuery, queryCount, false);
+ }
+ 
++/* Resets/copies of up to this many queries go through the command buffer's
++ * batch instead of a dispatch of their own. */
++#define KK_QUERY_BATCH_MAX 16
++
+ static void
+ emit_zero_queries(struct kk_cmd_buffer *cmd, struct kk_query_pool *pool,
+                   uint32_t first_index, uint32_t num_queries,
+@@ -256,6 +344,21 @@
+       .reports_per_query = kk_reports_per_query(pool),
+       .set_available = set_available,
+    };
++   /* Zink resets queries one at a time; batch small resets. */
++   if (num_queries <= KK_QUERY_BATCH_MAX && !KK_DEBUG(NO_QUERY_BATCH)) {
++      for (uint32_t i = 0; i < num_queries; i++) {
++         struct libkk_query_reset_desc desc = {
++            .availability = info.availability,
++            .results = info.results,
++            .oq_index = info.oq_index,
++            .query = first_index + i,
++            .reports_per_query = info.reports_per_query,
++            .set_available = set_available,
++         };
++         kk_batch_reset_query(cmd, false, &desc);
++      }
++      return;
++   }
+    libkk_reset_query_struct(cmd, kk_grid_1d(num_queries), false, info);
+ }
+ 
+@@ -340,7 +443,7 @@
     VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
     VK_FROM_HANDLE(kk_query_pool, pool, queryPool);
     struct kk_device *dev = kk_cmd_buffer_device(cmd);
@@ -1367,8 +2879,12 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  
     uint32_t count = kk_mv_query_count(cmd);
     enum mtl_render_stages mtl_stage =
-@@ -362,6 +438,8 @@
-          libkk_write_u32(cmd, kk_grid_1d(1), false, addr, true);
+@@ -359,9 +462,11 @@
+    if (cmd->gfx.encoder && mtl_stage) {
+       uint64_t addr = kk_query_available_addr(pool, query);
+       for (uint32_t i = 0; i < count; i++) {
+-         libkk_write_u32(cmd, kk_grid_1d(1), false, addr, true);
++         kk_batch_write(cmd, false, addr, true);
           addr += sizeof(uint32_t);
        }
 +      if (!pool->ts.heap)
@@ -1376,7 +2892,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  
        /* If we've already issued a timestamp write for a render stage, reuse it
         * because reissuing might return a 0 timestamp
-@@ -377,6 +455,14 @@
+@@ -377,6 +482,14 @@
        struct kk_ts_stage_entry entry = {.stage = mtl_stage,
                                          .pass = cmd->gfx.encoder,
                                          .index = query};
@@ -1391,16 +2907,32 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
        util_dynarray_append(&pool->ts.stage_map, entry);
  
        mtl_render_write_timestamp(cmd->gfx.encoder, mtl_stage, pool->ts.heap,
-@@ -401,6 +487,8 @@
+@@ -397,10 +510,14 @@
+        * timestamp write to ensure that there is compute work to trigger it. */
+       uint64_t addr = kk_query_available_addr(pool, query);
+       for (uint32_t i = 0; i < count; i++) {
+-         libkk_write_u32(cmd, kk_grid_1d(1), top, addr, true);
++         kk_batch_write(cmd, top, addr, true);
           addr += sizeof(uint32_t);
        }
++      /* The timestamp below needs the compute work already encoded. */
++      kk_flush_batch(cmd, es);
  
 +      if (!pool->ts.heap)
 +         return;
        mtl_compute_write_timestamp(es->encoder, pool->ts.heap, query);
        util_dynarray_append(&es->ts_resolves, resolve);
     }
-@@ -462,6 +550,7 @@
+@@ -443,7 +560,7 @@
+    uint64_t addr = kk_query_available_addr(pool, query);
+    uint32_t count = kk_mv_query_count(cmd);
+    for (uint32_t i = 0; i < count; i++) {
+-      kk_cmd_write(cmd, (struct libkk_imm_write){addr, true});
++      kk_defer_avail_write(cmd, addr, true);
+       addr += sizeof(uint32_t);
+    }
+ }
+@@ -462,6 +579,7 @@
  kk_query_wait_for_available(struct kk_device *dev, struct kk_query_pool *pool,
                              uint32_t query)
  {
@@ -1408,9 +2940,43 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     uint64_t abs_timeout_ns = os_time_get_absolute_timeout(KK_QUERY_TIMEOUT);
  
     while (os_time_get_nano() < abs_timeout_ns) {
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c
+@@ -556,14 +674,30 @@
+                                   struct kk_ts_resolve) > 0)
+       cs_end(cmd);
+ 
++   struct kk_bo *results_bo =
++      kk_pool_is_oq(pool) ? dev->occlusion_queries.bo : pool->bo;
++
++   if (queryCount <= KK_QUERY_BATCH_MAX && !KK_DEBUG(NO_QUERY_BATCH)) {
++      for (uint32_t i = 0; i < queryCount; i++) {
++         struct libkk_query_copy_desc desc = {
++            .availability = pool->bo->gpu,
++            .results = results_bo->gpu + pool->query_start,
++            .oq_index = pool->bo->gpu + pool->index_start,
++            .dst_addr = dst_buf->vk.device_address + dstOffset + i * stride,
++            .query = firstQuery + i,
++            .flags = flags,
++            .reports_per_query = kk_reports_per_query(pool),
++         };
++         kk_batch_copy_query(cmd, true, &desc);
++      }
++      return;
++   }
++
+    mtl_compute_encoder *encoder = cs_get_compute(cmd, true);
+    /* The resolveCounterHeap runs on the blit stage and it needs to be available
+     * for the compute job to copy results to the bo. */
+    mtl_barrier_after_queue_stages(encoder, MTL_STAGE_BLIT, MTL_STAGE_DISPATCH);
+ 
+-   struct kk_bo *results_bo =
+-      kk_pool_is_oq(pool) ? dev->occlusion_queries.bo : pool->bo;
+-
+    struct libkk_copy_queries_args args = {
+       .availability = pool->bo->gpu,
+       .results = results_bo->gpu + pool->query_start,
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-09 12:14:30.415323761 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-09 22:49:44.717331682 +0300
 @@ -20,6 +20,8 @@
  static void
  commit_callback(struct mtl_feedback_data *data)
@@ -1420,7 +2986,17 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     if (data->error != MTL_COMMAND_QUEUE_ERROR_NONE) {
        struct kk_device *dev = (struct kk_device *)data->user_data;
        vk_device_set_lost(
-@@ -47,6 +49,7 @@
+@@ -37,8 +39,7 @@
+    vk_cmd_queue_execute(&cmd->vk.cmd_queue, kk_cmd_buffer_to_handle(cmd),
+                         &dev->vk.dispatch_table);
+ 
+-   cs_end(cmd);
+-   cs_end(cmd);
++   cs_finish(cmd);
+ 
+    /* Need to ensure the new buffers allocated at record are resident. */
+    kk_device_make_resources_resident(dev);
+@@ -47,6 +48,7 @@
  static VkResult
  kk_queue_submit(struct vk_queue *vk_queue, struct vk_queue_submit *submit)
  {
@@ -1428,7 +3004,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     struct kk_queue *queue = container_of(vk_queue, struct kk_queue, vk);
     struct kk_device *dev = kk_queue_device(queue);
  
-@@ -83,10 +86,13 @@
+@@ -83,16 +85,21 @@
  
        /* Metal complains with empty submissions. */
        if (count > 0u) {
@@ -1446,7 +3022,15 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
        }
  
        if (cmd_buffer->drawable) {
-@@ -144,7 +150,6 @@
+          mtl_command_queue_signal_drawable(queue->mtl_handle,
+                                            cmd_buffer->drawable);
+          mtl_drawable_present(cmd_buffer->drawable);
++         /* Drop the reference taken in kk_encode_drawable_present. */
++         mtl_release(cmd_buffer->drawable);
+          cmd_buffer->drawable = NULL;
+       }
+    }
+@@ -144,7 +151,6 @@
     queue->mtl_handle = mtl_new_command_queue(dev->mtl_handle);
     mtl_command_queue_add_residency_set(queue->mtl_handle,
                                         dev->residency_set.handle);
@@ -1454,7 +3038,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  
     queue->vk.driver_submit = kk_queue_submit;
  
-@@ -156,7 +161,65 @@
+@@ -156,7 +162,97 @@
  {
     mtl_command_queue_remove_residency_set(queue->mtl_handle,
                                            dev->residency_set.handle);
@@ -1484,10 +3068,20 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +   kk_perf_n[slot]++;
 +}
 +
++static _Atomic uint64_t kk_perf_precomp_n[64];
++void
++kk_perf_precomp(unsigned idx)
++{
++   kk_perf_n[KK_PERF_PRECOMP]++;
++   kk_perf_precomp_n[idx & 63]++;
++}
++
 +void kk_perf_frame(void);
++void kk_capture_frame_tick(void);
 +void
 +kk_perf_frame(void)
 +{
++   kk_capture_frame_tick();
 +   uint64_t now = kk_perf_now();
 +   uint64_t last = kk_perf_last;
 +   kk_perf_frames++;
@@ -1506,6 +3100,28 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +   }
 +   if (!f)
 +      return;
++   char pc[256] = "";
++   for (int i = 0, o = 0; i < 64; i++) {
++      uint64_t c = atomic_exchange(&kk_perf_precomp_n[i], 0);
++      if (c >= f && o < (int)sizeof(pc) - 24)
++         o += snprintf(pc + o, sizeof(pc) - o, " p%d=%.1f", i, (double)c / f);
++   }
++   fprintf(stderr, "kkperf2: render_enc/f=%.1f compute_enc/f=%.1f barrier_splits/f=%.1f precomp/f=%.1f%s | "
++           "rp_begin=%.1fms/f (%.1f/f) barrier=%.1fms/f (%.1f/f) rp_end=%.1fms/f cs_end=%.1fms/f (%.1f/f) "
++           "end_cmdbuf=%.1fms/f (%.1f/f) clear=%.1fms/f (%.1f/f) new_rpd=%.1fms/f start_render=%.1fms/f (%.1f/f) new_cb=%.1fms/f new_renc=%.1fms/f (%.1f/f) renc_grow=%.1fms/f (%.1f/f) alloc_trims/f=%.2f alloc_growth=%.1fMB/f (%.1f resets/f)\n",
++           (double)n[KK_PERF_RENDER_ENC] / f, (double)n[KK_PERF_COMPUTE_ENC] / f,
++           (double)n[KK_PERF_BARRIER_SPLIT] / f, (double)n[KK_PERF_PRECOMP] / f, pc,
++           ns[KK_PERF_RENDERING] / 1e6 / f, (double)n[KK_PERF_RENDERING] / f,
++           ns[KK_PERF_BARRIER] / 1e6 / f, (double)n[KK_PERF_BARRIER] / f,
++           ns[KK_PERF_RP_END] / 1e6 / f, ns[KK_PERF_CS_END] / 1e6 / f,
++           (double)n[KK_PERF_CS_END] / f, ns[KK_PERF_END_CMDBUF] / 1e6 / f,
++           (double)n[KK_PERF_END_CMDBUF] / f, ns[KK_PERF_CLEAR] / 1e6 / f,
++           (double)n[KK_PERF_CLEAR] / f, ns[KK_PERF_NEW_RPD] / 1e6 / f,
++           ns[KK_PERF_START_RENDER] / 1e6 / f, (double)n[KK_PERF_START_RENDER] / f,
++           ns[KK_PERF_NEW_CB] / 1e6 / f, ns[KK_PERF_NEW_RENC] / 1e6 / f,
++           (double)n[KK_PERF_NEW_RENC] / f, ns[KK_PERF_RENC_GROW] / 1e6 / f,
++           (double)n[KK_PERF_RENC_GROW] / f, (double)n[KK_PERF_ALLOC_TRIM] / f,
++           ns[KK_PERF_ALLOC_GROWTH] / 1048576.0 / f, (double)n[KK_PERF_ALLOC_GROWTH] / f);
 +   double frame_ms = (now - last) / 1e6 / f;
 +   fprintf(stderr,
 +           "kkperf: fps=%.1f frame=%.1fms | draws/f=%.0f %.1fus/draw kk_draw=%.1fms/f | "
@@ -1521,7 +3137,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
 +           ns[KK_PERF_SYNC_WAIT] / 1e6 / f, (double)n[KK_PERF_SYNC_WAIT] / f,
 +           ns[KK_PERF_QUERY_WAIT] / 1e6 / f, (double)n[KK_PERF_QUERY_WAIT] / f);
 +}
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.h
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.h	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.h	2026-10-09 12:14:30.415708471 +0300
 @@ -17,7 +17,6 @@
@@ -1532,7 +3148,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
  };
  
  static inline struct kk_device *
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sampler.c	2026-10-08 22:45:22.000000000 +0300
 @@ -20,6 +20,11 @@
@@ -1565,7 +3181,56 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     VK_FROM_HANDLE(kk_device, dev, device);
     VK_FROM_HANDLE(kk_sampler, sampler, _sampler);
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sync.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sync.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_shader.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_shader.c
+--- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_shader.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_shader.c	2026-10-09 17:41:34.166470842 +0300
+@@ -31,6 +31,12 @@
+ #include "vk_nir_convert_ycbcr.h"
+ #include "vk_pipeline.h"
+ 
++#define KK_SHADER_MATH_MODE                                                    \
++   (KK_DEBUG(SAFE_MATH) ? MTL_MATH_MODE_SAFE : MTL_MATH_MODE_FAST)
++#define KK_SHADER_MATH_FP_FNS                                                  \
++   (KK_DEBUG(SAFE_MATH) ? MTL_MATH_FLOATING_POINT_FUNCTIONS_PRECISE           \
++                        : MTL_MATH_FLOATING_POINT_FUNCTIONS_FAST)
++
+ static const nir_shader_compiler_options *
+ kk_get_nir_options(struct vk_physical_device *vk_pdev, mesa_shader_stage stage,
+                    UNUSED const struct vk_pipeline_robustness_state *rs)
+@@ -980,8 +986,8 @@
+                             mtl_compute_pipeline_state **pipe)
+ {
+    mtl_library *library = mtl_new_library(
+-      device->mtl_compiler_handle, data->code, MTL_MATH_MODE_FAST,
+-      MTL_MATH_FLOATING_POINT_FUNCTIONS_FAST);
++      device->mtl_compiler_handle, data->code, KK_SHADER_MATH_MODE,
++      KK_SHADER_MATH_FP_FNS);
+    if (library == NULL)
+       return VK_ERROR_INVALID_SHADER_NV;
+ 
+@@ -1225,8 +1231,8 @@
+ 
+    const struct msl_compile_data *vs_data = &vs->msl_data[vs_stage];
+    mtl_library *vertex_library = mtl_new_library(
+-      device->mtl_compiler_handle, vs_data->code, MTL_MATH_MODE_FAST,
+-      MTL_MATH_FLOATING_POINT_FUNCTIONS_FAST);
++      device->mtl_compiler_handle, vs_data->code, KK_SHADER_MATH_MODE,
++      KK_SHADER_MATH_FP_FNS);
+    if (vertex_library == NULL)
+       return VK_ERROR_INVALID_SHADER_NV;
+ 
+@@ -1236,8 +1242,8 @@
+ 
+    const struct msl_compile_data *fs_data = &vs->msl_data[MESA_SHADER_FRAGMENT];
+    mtl_library *fragment_library = mtl_new_library(
+-      device->mtl_compiler_handle, fs_data->code, MTL_MATH_MODE_FAST,
+-      MTL_MATH_FLOATING_POINT_FUNCTIONS_FAST);
++      device->mtl_compiler_handle, fs_data->code, KK_SHADER_MATH_MODE,
++      KK_SHADER_MATH_FP_FNS);
+    if (fragment_library == NULL) {
+       result = VK_ERROR_INVALID_SHADER_NV;
+       goto destroy_vertex;
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sync.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sync.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sync.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_sync.c	2026-10-09 12:01:59.827607184 +0300
 @@ -57,6 +57,7 @@
@@ -1576,7 +3241,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/kosmickrisp/vul
     struct kk_sync_timeline *timeline =
        container_of(sync, struct kk_sync_timeline, base);
  
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m
 --- mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal_layer.m	2026-10-08 22:17:42.000000000 +0300
 @@ -1,3 +1,4 @@
@@ -1642,7 +3307,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/vulkan/wsi/wsi_
        return (CAMetalDrawable *)[drawable retain];
     }
  }
-diff --color -ruN -x __pycache__ -x '*.pyc' mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal.c mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal.c
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal.c mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal.c
 --- mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal.c	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/vulkan/wsi/wsi_common_metal.c	2026-10-09 11:18:30.078948321 +0300
 @@ -477,11 +477,32 @@

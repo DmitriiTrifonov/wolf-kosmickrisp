@@ -282,7 +282,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
  
 diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c
 --- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c	2026-10-10 20:47:38.557576750 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c	2026-10-10 21:04:04.435483852 +0300
 @@ -220,6 +220,7 @@
  void
  zink_destroy_resource_object(struct zink_screen *screen, struct zink_resource_object *obj)
@@ -291,7 +291,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
     if (!obj->dt)
        zink_destroy_resource_surface_cache(screen, &obj->surface_cache, obj->is_buffer);
     simple_mtx_destroy(&obj->surface_mtx);
-@@ -2628,10 +2629,19 @@
+@@ -2628,10 +2629,22 @@
        return NULL;
  
     void *ptr = NULL;
@@ -301,7 +301,10 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
        usage |= PIPE_MAP_PERSISTENT;
  
 +   /* Is the CPU shadow still the buffer's latest contents? Any other write
-+    * map invalidates it; a staged full-range write revalidates it at flush. */
++    * map invalidates it; a staged full-range write revalidates it at flush.
++    * GPU writes other than our own staging copy show up in kk_write_seq.
++    * Writes by resource_copy_region (e.g. threaded-context staging uploads)
++    * are caught by kk_write_seq too. */
 +   const bool full_range = box->x == 0 && box->width == res->base.b.width0;
 +   const bool shadow_ok = res->obj->kk_shadow_valid && full_range &&
 +                          res->obj->kk_shadow_seq == res->obj->bo->kk_write_seq;
@@ -311,7 +314,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
     /* See if the buffer range being mapped has never been initialized,
      * in which case it can be mapped unsynchronized. */
     if (!(usage & (PIPE_MAP_UNSYNCHRONIZED | TC_TRANSFER_MAP_NO_INFER_UNSYNCHRONIZED)) &&
-@@ -2740,6 +2750,20 @@
+@@ -2740,6 +2753,44 @@
           }
           if (usage & PIPE_MAP_READ)
              zink_copy_buffer(ctx, staging_res, res, trans->offset, box->x, box->width, false);
@@ -320,28 +323,55 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
 +            /* GPU writes still pending can only be our previous staging
 +             * copy (shadow_ok), whose data the shadow holds. */
 +            bool from_shadow = !zink_resource_usage_check_completion(screen, res, ZINK_RESOURCE_ACCESS_WRITE);
-+            uint8_t *src = from_shadow ? res->obj->kk_shadow : map_resource(screen, res);
 +            uint8_t *dst = map_resource(screen, staging_res);
-+            if (!src || !dst)
++            if (!dst)
 +               goto fail;
-+            memcpy(dst + trans->offset, src + box->x, box->width);
-+            if (!from_shadow)
++            if (trans->kk_update_shadow) {
++               /* full range: the shadow becomes the pre-image, and at flush
++                * only the bytes the app changed relative to it are copied */
++               if (!res->obj->kk_shadow)
++                  res->obj->kk_shadow = malloc(res->base.b.width0);
++               if (!res->obj->kk_shadow) {
++                  unmap_resource(screen, staging_res);
++                  goto fail;
++               }
++               if (!from_shadow) {
++                  uint8_t *src = map_resource(screen, res);
++                  if (!src) {
++                     unmap_resource(screen, staging_res);
++                     goto fail;
++                  }
++                  memcpy(res->obj->kk_shadow, src, res->base.b.width0);
++                  unmap_resource(screen, res);
++               }
++               memcpy(dst + trans->offset, res->obj->kk_shadow, box->width);
++            } else {
++               uint8_t *src = map_resource(screen, res);
++               if (!src) {
++                  unmap_resource(screen, staging_res);
++                  goto fail;
++               }
++               memcpy(dst + trans->offset, src + box->x, box->width);
 +               unmap_resource(screen, res);
++            }
 +            unmap_resource(screen, staging_res);
 +         }
           res = staging_res;
           usage &= ~PIPE_MAP_UNSYNCHRONIZED;
           map_offset = trans->offset;
-@@ -2749,13 +2773,46 @@
+@@ -2749,13 +2800,49 @@
     if (!(usage & PIPE_MAP_UNSYNCHRONIZED)) {
        if (usage & PIPE_MAP_WRITE) {
           if (!(usage & PIPE_MAP_READ)) {
-+            /* A write-only map of a buffer the GPU is still using: stage the
-+             * write and copy it in on the GPU timeline instead of stalling
-+             * until the GPU is done (cost a third of every frame in Wolfenstein). */
++            /* EXPERIMENTAL (ZINK_KK_MAP_STAGE=1): a write-only map of a buffer
++             * the GPU is still using is staged and copied in on the GPU timeline
++             * instead of stalling until the GPU is done (a third of every frame
++             * in Wolfenstein). Off by default: the game's skinning buffer is also
++             * written by other paths and the staged contents can go stale,
++             * which mangles characters. */
 +            static int map_wait = -1;
 +            if (map_wait < 0)
-+               map_wait = debug_get_bool_option("ZINK_KK_MAP_WAIT", false);
++               map_wait = !debug_get_bool_option("ZINK_KK_MAP_STAGE", false);
 +            /* Only while the GPU merely reads it: the bytes the app leaves
 +             * untouched are preserved by copying the current contents into
 +             * the staging buffer on the CPU, which needs finished writes. */
@@ -380,7 +410,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
        if (!res->real_buffer_range) {
           res->obj->access = 0;
           res->obj->access_stage = 0;
-@@ -2884,11 +2941,14 @@
+@@ -2884,11 +2971,14 @@
        if (usage & PIPE_MAP_READ) {
           assert(!(usage & TC_TRANSFER_MAP_THREADED_UNSYNC));
           /* force multi-context sync */
@@ -395,7 +425,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
        }
  
        ptr = map_resource(screen, staging_res);
-@@ -2899,10 +2959,12 @@
+@@ -2899,10 +2989,12 @@
           goto fail;
        if (zink_resource_has_usage(res)) {
           assert(!(usage & PIPE_MAP_UNSYNCHRONIZED));
@@ -408,25 +438,61 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
        }
        VkImageSubresource isr = {
           res->modifiers ? res->obj->modifier_aspect : res->aspect,
-@@ -3084,9 +3146,21 @@
+@@ -3084,9 +3176,56 @@
        if (trans->staging_res) {
           struct zink_resource *staging_res = zink_resource(trans->staging_res);
  
 -         if (ptrans->resource->target == PIPE_BUFFER)
-+         if (ptrans->resource->target == PIPE_BUFFER) {
-             zink_copy_buffer(ctx, res, staging_res, dst_offset, src_offset, size, trans->unsync_upload);
+-            zink_copy_buffer(ctx, res, staging_res, dst_offset, src_offset, size, trans->unsync_upload);
 -         else
-+            if (trans->kk_update_shadow && size == res->base.b.width0) {
-+               if (!res->obj->kk_shadow)
-+                  res->obj->kk_shadow = malloc(res->base.b.width0);
-+               uint8_t *src = map_resource(screen, staging_res);
-+               if (res->obj->kk_shadow && src) {
-+                  memcpy(res->obj->kk_shadow, src + src_offset, size);
-+                  res->obj->kk_shadow_seq = res->obj->bo->kk_write_seq;
-+                  res->obj->kk_shadow_valid = true;
++         if (ptrans->resource->target == PIPE_BUFFER) {
++            uint8_t *src = NULL;
++            if (trans->kk_update_shadow && size == res->base.b.width0 && res->obj->kk_shadow)
++               src = map_resource(screen, staging_res);
++            if (src) {
++               /* Copy only the runs the app changed relative to the pre-image
++                * in the shadow, so bytes written to the buffer by other means
++                * meanwhile (e.g. unsynchronized maps) are not clobbered. */
++               const uint8_t *cur = src + src_offset;
++               uint8_t *shadow = res->obj->kk_shadow;
++               const unsigned blk = 64, max_gap = 256;
++               unsigned runs = 0, bytes = 0;
++               unsigned run_start = 0, run_end = 0;
++               bool in_run = false;
++               for (unsigned o = 0; o < size; o += blk) {
++                  unsigned n = MIN2(blk, size - o);
++                  if (!memcmp(cur + o, shadow + o, n))
++                     continue;
++                  if (in_run && o - run_end <= max_gap) {
++                     run_end = o + n;
++                     continue;
++                  }
++                  if (in_run) {
++                     zink_copy_buffer(ctx, res, staging_res, dst_offset + run_start, src_offset + run_start,
++                                      run_end - run_start, trans->unsync_upload);
++                     memcpy(shadow + run_start, cur + run_start, run_end - run_start);
++                     runs++;
++                     bytes += run_end - run_start;
++                  }
++                  in_run = true;
++                  run_start = o;
++                  run_end = o + n;
 +               }
-+               if (src)
-+                  unmap_resource(screen, staging_res);
++               if (in_run) {
++                  zink_copy_buffer(ctx, res, staging_res, dst_offset + run_start, src_offset + run_start,
++                                   run_end - run_start, trans->unsync_upload);
++                  memcpy(shadow + run_start, cur + run_start, run_end - run_start);
++                  runs++;
++                  bytes += run_end - run_start;
++               }
++               unmap_resource(screen, staging_res);
++               res->obj->kk_shadow_seq = res->obj->bo->kk_write_seq;
++               res->obj->kk_shadow_valid = true;
++               /* TEMP */
++               snprintf(zink_wait_info, sizeof(zink_wait_info), "buf_w_diff size=%u runs=%u bytes=%u",
++                        size, runs, bytes);
++            } else {
++               zink_copy_buffer(ctx, res, staging_res, dst_offset, src_offset, size, trans->unsync_upload);
 +            }
 +         } else
              zink_transfer_copy_bufimage(ctx, res, staging_res, trans);

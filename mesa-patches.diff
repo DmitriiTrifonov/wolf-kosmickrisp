@@ -269,6 +269,165 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
     util_dynarray_clear(&query->starts);
     query->start_offset = 0;
  
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_resource.c	2026-10-10 14:56:11.700694775 +0300
+@@ -2749,13 +2749,39 @@
+    if (!(usage & PIPE_MAP_UNSYNCHRONIZED)) {
+       if (usage & PIPE_MAP_WRITE) {
+          if (!(usage & PIPE_MAP_READ)) {
++            /* A write-only map of a buffer the GPU is still using: stage the
++             * write and copy it in on the GPU timeline instead of stalling
++             * until the GPU is done (cost a third of every frame in Wolfenstein). */
++            static int map_wait = -1;
++            if (map_wait < 0)
++               map_wait = debug_get_bool_option("ZINK_KK_MAP_WAIT", false);
++            if (!map_wait && !(usage & PIPE_MAP_PERSISTENT) &&
++                !zink_resource_usage_check_completion(screen, res, ZINK_RESOURCE_ACCESS_RW)) {
++               /* TEMP */
++               snprintf(zink_wait_info, sizeof(zink_wait_info), "buf_w_staged size=%u box=%d+%d usage=0x%x bind=0x%x pusage=%d",
++                        res->base.b.width0, box->x, box->width, usage, res->base.b.bind, res->base.b.usage);
++               goto overwrite;
++            }
++            zink_wait_tag = "buf_w_try";
+             zink_resource_usage_try_wait(ctx, res, ZINK_RESOURCE_ACCESS_RW);
++            zink_wait_tag = NULL;
+             if (zink_resource_has_unflushed_usage(res))
+                goto overwrite;
+          }
++         if (zink_resource_has_usage(res))
++            snprintf(zink_wait_info, sizeof(zink_wait_info), "buf_w size=%u box=%d+%d usage=0x%x bind=0x%x pusage=%d hv=%d",
++                     res->base.b.width0, box->x, box->width, usage, res->base.b.bind, res->base.b.usage, res->obj->host_visible);
++         zink_wait_tag = "buf_w";
+          zink_resource_usage_wait(ctx, res, ZINK_RESOURCE_ACCESS_RW);
+-      } else
++         zink_wait_tag = NULL;
++      } else {
++         if (zink_resource_has_usage(res))
++            snprintf(zink_wait_info, sizeof(zink_wait_info), "buf_r size=%u box=%d+%d usage=0x%x bind=0x%x pusage=%d hv=%d",
++                     res->base.b.width0, box->x, box->width, usage, res->base.b.bind, res->base.b.usage, res->obj->host_visible);
++         zink_wait_tag = "buf_r";
+          zink_resource_usage_wait(ctx, res, ZINK_RESOURCE_ACCESS_WRITE);
++         zink_wait_tag = NULL;
++      }
+       if (!res->real_buffer_range) {
+          res->obj->access = 0;
+          res->obj->access_stage = 0;
+@@ -2884,11 +2910,14 @@
+       if (usage & PIPE_MAP_READ) {
+          assert(!(usage & TC_TRANSFER_MAP_THREADED_UNSYNC));
+          /* force multi-context sync */
++         zink_wait_tag = "img_r_staging";
++         snprintf(zink_wait_info, sizeof(zink_wait_info), "img_r %ux%u fmt=%d box=%dx%d", res->base.b.width0, res->base.b.height0, res->base.b.format, box->width, box->height);
+          if (zink_resource_usage_is_unflushed_write(res))
+             zink_resource_usage_wait(ctx, res, ZINK_RESOURCE_ACCESS_WRITE);
+          zink_transfer_copy_bufimage(ctx, staging_res, res, trans);
+          /* need to wait for rendering to finish */
+          zink_fence_wait(pctx);
++         zink_wait_tag = NULL;
+       }
+ 
+       ptr = map_resource(screen, staging_res);
+@@ -2899,10 +2928,12 @@
+          goto fail;
+       if (zink_resource_has_usage(res)) {
+          assert(!(usage & PIPE_MAP_UNSYNCHRONIZED));
++         zink_wait_tag = "img_linear";
+          if (usage & PIPE_MAP_WRITE)
+             zink_fence_wait(pctx);
+          else
+             zink_resource_usage_wait(ctx, res, ZINK_RESOURCE_ACCESS_WRITE);
++         zink_wait_tag = NULL;
+       }
+       VkImageSubresource isr = {
+          res->modifiers ? res->obj->modifier_aspect : res->aspect,
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.c mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.c
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.c	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.c	2026-10-10 14:50:45.313099222 +0300
+@@ -2554,8 +2554,52 @@
+ #endif
+ }
+ 
++/* TEMP: per-call-site wait accounting, printed as zinkwait every 2 s */
++static struct { const char *site; uint64_t ns, n; } zink_wait_stats[24];
++static uint64_t zink_wait_last;
++__thread const char *zink_wait_tag;
++char zink_wait_info[160];
++static simple_mtx_t zink_wait_mtx = SIMPLE_MTX_INITIALIZER;
++
++static void
++zink_wait_account(const char *site, uint64_t ns)
++{
++   simple_mtx_lock(&zink_wait_mtx);
++   unsigned i;
++   for (i = 0; i < ARRAY_SIZE(zink_wait_stats); i++) {
++      if (!zink_wait_stats[i].site)
++         zink_wait_stats[i].site = site;
++      if (zink_wait_stats[i].site == site)
++         break;
++   }
++   if (i < ARRAY_SIZE(zink_wait_stats)) {
++      zink_wait_stats[i].ns += ns;
++      zink_wait_stats[i].n++;
++   }
++   uint64_t now = os_time_get_nano();
++   if (!zink_wait_last)
++      zink_wait_last = now;
++   if (now - zink_wait_last > 2000000000ull) {
++      double secs = (now - zink_wait_last) / 1e9;
++      char buf[1024];
++      int o = 0;
++      for (i = 0; i < ARRAY_SIZE(zink_wait_stats) && zink_wait_stats[i].site; i++) {
++         if (zink_wait_stats[i].n && o < (int)sizeof(buf) - 80) {
++            const char *s = strrchr(zink_wait_stats[i].site, '/');
++            o += snprintf(buf + o, sizeof(buf) - o, " %s=%.1fms/s(%.0f/s)", s ? s + 1 : zink_wait_stats[i].site,
++                          zink_wait_stats[i].ns / 1e6 / secs, zink_wait_stats[i].n / secs);
++         }
++         zink_wait_stats[i].ns = zink_wait_stats[i].n = 0;
++      }
++      fprintf(stderr, "zinkwait:%s | last: %s\n", buf, zink_wait_info);
++      zink_wait_last = now;
++   }
++   simple_mtx_unlock(&zink_wait_mtx);
++}
++
++#undef zink_screen_timeline_wait
+ bool
+-zink_screen_timeline_wait(struct zink_screen *screen, uint64_t batch_id, uint64_t timeout)
++zink_screen_timeline_wait_site(struct zink_screen *screen, uint64_t batch_id, uint64_t timeout, const char *site)
+ {
+    MESA_TRACE_FUNC();
+    VkSemaphoreWaitInfo wi = {0};
+@@ -2570,7 +2614,10 @@
+    bool success = false;
+    if (screen->device_lost)
+       return true;
++   uint64_t t0 = timeout ? os_time_get_nano() : 0;
+    VkResult ret = VKSCR(WaitSemaphores)(screen->dev, &wi, timeout);
++   if (timeout)
++      zink_wait_account(zink_wait_tag ? zink_wait_tag : site, os_time_get_nano() - t0);
+    success = zink_screen_handle_vkresult(screen, ret);
+ 
+    if (success)
+diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.h mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.h
+--- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.h	2026-10-01 17:39:53.000000000 +0300
++++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_screen.h	2026-10-10 14:50:45.312038594 +0300
+@@ -187,7 +187,14 @@
+                    const union pipe_color_union *src);
+ 
+ bool
+-zink_screen_timeline_wait(struct zink_screen *screen, uint64_t batch_id, uint64_t timeout);
++zink_screen_timeline_wait_site(struct zink_screen *screen, uint64_t batch_id, uint64_t timeout, const char *site);
++/* TEMP: per-call-site wait accounting */
++extern __thread const char *zink_wait_tag;
++extern char zink_wait_info[160];
++#define ZINK_WAIT_STR2(x) #x
++#define ZINK_WAIT_STR(x) ZINK_WAIT_STR2(x)
++#define zink_screen_timeline_wait(screen, batch_id, timeout) \
++   zink_screen_timeline_wait_site(screen, batch_id, timeout, __FILE__ ":" ZINK_WAIT_STR(__LINE__))
+ 
+ bool
+ zink_is_depth_format_supported(struct zink_screen *screen, VkFormat format);
 diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp
 --- mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp	2026-10-01 17:39:53.000000000 +0300
 +++ mesa-mesa-26.2.4/src/gallium/drivers/zink/zink_synchronization.cpp	2026-10-09 17:09:03.837984011 +0300
@@ -2660,14 +2819,14 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
     kk_get_device_properties(pdev, instance, &properties);
 diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h	2026-10-09 22:33:37.737964342 +0300
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_private.h	2026-10-10 14:26:14.664178275 +0300
 @@ -54,4 +54,16 @@
     uint64_t range;
  };
  
 +/* TEMP diagnostics: per-frame CPU cost of KosmicKrisp entrypoints */
 +#include <time.h>
-+enum { KK_PERF_DRAW, KK_PERF_DISPATCH, KK_PERF_SUBMIT, KK_PERF_ACQUIRE, KK_PERF_GPU, KK_PERF_SYNC_WAIT, KK_PERF_QUERY_WAIT, KK_PERF_RENDER_ENC, KK_PERF_COMPUTE_ENC, KK_PERF_BARRIER_SPLIT, KK_PERF_PRECOMP, KK_PERF_RENDERING, KK_PERF_BARRIER, KK_PERF_RP_END, KK_PERF_CS_END, KK_PERF_END_CMDBUF, KK_PERF_CLEAR, KK_PERF_NEW_RPD, KK_PERF_START_RENDER, KK_PERF_NEW_CB, KK_PERF_NEW_RENC, KK_PERF_RENC_GROW, KK_PERF_ALLOC_TRIM, KK_PERF_ALLOC_GROWTH, KK_PERF_COUNT };
++enum { KK_PERF_DRAW, KK_PERF_DISPATCH, KK_PERF_SUBMIT, KK_PERF_ACQUIRE, KK_PERF_GPU, KK_PERF_SYNC_WAIT, KK_PERF_QUERY_WAIT, KK_PERF_RENDER_ENC, KK_PERF_COMPUTE_ENC, KK_PERF_BARRIER_SPLIT, KK_PERF_PRECOMP, KK_PERF_RENDERING, KK_PERF_BARRIER, KK_PERF_RP_END, KK_PERF_CS_END, KK_PERF_END_CMDBUF, KK_PERF_CLEAR, KK_PERF_NEW_RPD, KK_PERF_START_RENDER, KK_PERF_NEW_CB, KK_PERF_NEW_RENC, KK_PERF_RENC_GROW, KK_PERF_ALLOC_TRIM, KK_PERF_ALLOC_GROWTH, KK_PERF_GPU_BUSY, KK_PERF_COUNT };
 +void kk_perf_precomp(unsigned idx);
 +void kk_perf_add_ns(int slot, uint64_t ns);
 +void kk_perf_add(int slot, uint64_t t0_ns);
@@ -2976,17 +3135,24 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
        .results = results_bo->gpu + pool->query_start,
 diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c
 --- mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-01 17:39:53.000000000 +0300
-+++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-09 22:49:44.717331682 +0300
-@@ -20,6 +20,8 @@
++++ mesa-mesa-26.2.4/src/kosmickrisp/vulkan/kk_queue.c	2026-10-10 14:26:14.664472402 +0300
+@@ -20,6 +20,15 @@
  static void
  commit_callback(struct mtl_feedback_data *data)
  {
-+   if (data->gpu_end > data->gpu_start)
++   if (data->gpu_end > data->gpu_start) {
 +      kk_perf_add_ns(KK_PERF_GPU, (uint64_t)((data->gpu_end - data->gpu_start) * 1e9));
++      /* TEMP: union of commit GPU intervals = time the GPU was actually busy */
++      static double busy_end;
++      double start = MAX2(data->gpu_start, busy_end);
++      if (data->gpu_end > start)
++         kk_perf_add_ns(KK_PERF_GPU_BUSY, (uint64_t)((data->gpu_end - start) * 1e9));
++      busy_end = MAX2(busy_end, data->gpu_end);
++   }
     if (data->error != MTL_COMMAND_QUEUE_ERROR_NONE) {
        struct kk_device *dev = (struct kk_device *)data->user_data;
        vk_device_set_lost(
-@@ -37,8 +39,7 @@
+@@ -37,8 +46,7 @@
     vk_cmd_queue_execute(&cmd->vk.cmd_queue, kk_cmd_buffer_to_handle(cmd),
                          &dev->vk.dispatch_table);
  
@@ -2996,7 +3162,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
  
     /* Need to ensure the new buffers allocated at record are resident. */
     kk_device_make_resources_resident(dev);
-@@ -47,6 +48,7 @@
+@@ -47,6 +55,7 @@
  static VkResult
  kk_queue_submit(struct vk_queue *vk_queue, struct vk_queue_submit *submit)
  {
@@ -3004,7 +3170,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
     struct kk_queue *queue = container_of(vk_queue, struct kk_queue, vk);
     struct kk_device *dev = kk_queue_device(queue);
  
-@@ -83,16 +85,21 @@
+@@ -83,16 +92,21 @@
  
        /* Metal complains with empty submissions. */
        if (count > 0u) {
@@ -3030,7 +3196,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
           cmd_buffer->drawable = NULL;
        }
     }
-@@ -144,7 +151,6 @@
+@@ -144,7 +158,6 @@
     queue->mtl_handle = mtl_new_command_queue(dev->mtl_handle);
     mtl_command_queue_add_residency_set(queue->mtl_handle,
                                         dev->residency_set.handle);
@@ -3038,7 +3204,7 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
  
     queue->vk.driver_submit = kk_queue_submit;
  
-@@ -156,7 +162,97 @@
+@@ -156,7 +169,97 @@
  {
     mtl_command_queue_remove_residency_set(queue->mtl_handle,
                                            dev->residency_set.handle);
@@ -3126,14 +3292,14 @@ diff --color -ruN -x __pycache__ -x '*.pyc' -x subprojects mesa-mesa-26.2.4/src/
 +   fprintf(stderr,
 +           "kkperf: fps=%.1f frame=%.1fms | draws/f=%.0f %.1fus/draw kk_draw=%.1fms/f | "
 +           "disp/f=%.0f kk_disp=%.1fms/f | submits/f=%.1f kk_submit=%.1fms/f | acquire=%.1fms/f | "
-+           "gpu=%.1fms/f (%.1f cb/f) | sync_wait=%.1fms/f (%.1f/f) | query_wait=%.1fms/f (%.1f/f)\n",
++           "gpu=%.1fms/f (%.1f cb/f) busy=%.1fms/f | sync_wait=%.1fms/f (%.1f/f) | query_wait=%.1fms/f (%.1f/f)\n",
 +           f * 1e9 / (now - last), frame_ms,
 +           (double)n[KK_PERF_DRAW] / f, n[KK_PERF_DRAW] ? ns[KK_PERF_DRAW] / 1e3 / n[KK_PERF_DRAW] : 0.0,
 +           ns[KK_PERF_DRAW] / 1e6 / f,
 +           (double)n[KK_PERF_DISPATCH] / f, ns[KK_PERF_DISPATCH] / 1e6 / f,
 +           (double)n[KK_PERF_SUBMIT] / f, ns[KK_PERF_SUBMIT] / 1e6 / f,
 +           ns[KK_PERF_ACQUIRE] / 1e6 / f,
-+           ns[KK_PERF_GPU] / 1e6 / f, (double)n[KK_PERF_GPU] / f,
++           ns[KK_PERF_GPU] / 1e6 / f, (double)n[KK_PERF_GPU] / f, ns[KK_PERF_GPU_BUSY] / 1e6 / f,
 +           ns[KK_PERF_SYNC_WAIT] / 1e6 / f, (double)n[KK_PERF_SYNC_WAIT] / f,
 +           ns[KK_PERF_QUERY_WAIT] / 1e6 / f, (double)n[KK_PERF_QUERY_WAIT] / f);
 +}

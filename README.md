@@ -1,33 +1,86 @@
-# Wolfenstein: The New Order on macOS via Zink + KosmicKrisp
+# Wolfenstein: The New Order на macOS через Zink + KosmicKrisp
 
-Experiment (started 2026-10-08): run an OpenGL-only Windows game through
-NotProton (CrossOver 26.3) on Apple Silicon:
+[English version](README.en.md)
 
-    game (OpenGL) -> Mesa opengl32/Zink (Windows DLL) -> winevulkan
-      -> vkshim (libMoltenVK.dylib stand-in) -> KosmicKrisp (x86_64, Rosetta) -> Metal
+Эксперимент: запустить Windows-игру, которая умеет только OpenGL, на Mac с Apple Silicon
+через NotProton (CrossOver 26.3), без MoltenVK. Цепочка такая:
 
-## Layout
+    игра (OpenGL) -> Mesa opengl32 / Zink (Windows DLL) -> winevulkan
+      -> vkshim (подменяет libMoltenVK.dylib) -> KosmicKrisp (x86_64 под Rosetta) -> Metal 4
 
-- `mesa/mesa-mesa-26.2.4/` — Mesa 26.2.4 sources with all patches applied
-- `mesa-patches.diff` — the patches (vs `mesa-26.2.4-pristine.tar.gz`)
-- `build-kk-x64/` — KosmicKrisp x86_64 build (native build under Rosetta)
-- `build-win/` — Mesa Zink WGL build for Windows (mingw)
-- `build-clc/`, `clctools/` — native `mesa_clc` / `vtn_bindgen2` needed by KosmicKrisp
-- `vkshim/` — `libMoltenVK.dylib` shim: picks KosmicKrisp per prefix, clamps API to 1.3,
-  enables all instance exts, exports `vkCreateMetalSurfaceEXT`, re-exports MoltenVK
-- `fiberfix/` — `dinput8.dll` proxy fixing inline `GetCurrentFiber()` (gs:[0x20]) on CrossOver/macOS
-- `gltest/`, `mtl4test/` — small test programs
-- `backup/` — original MoltenVK, original pal1000 Mesa DLLs, original zink/kk sources
-- `sym/` — pal1000 libgallium_wgl.dll + PDB (for symbolizing the stock build)
-- `py-x64/` — x86_64 Python 3.12 (python-build-standalone) for the Rosetta build
-- `bin/` — helper scripts (`wolfwine`, cross files, memory monitors)
+KosmicKrisp — Vulkan-драйвер из Mesa поверх Metal 4. Zink — OpenGL поверх Vulkan.
 
-Note: meson build dirs and venvs contain absolute scratchpad paths; after the move
-re-run `meson setup --reconfigure` (or set up fresh build dirs) and recreate venvs.
+Проверялось на MacBook Pro M2 Pro, 16 ГБ, macOS 26.5, Mesa 26.2.4.
 
-## Rebuild
+## Что сейчас работает
 
-KosmicKrisp (x86_64, under Rosetta):
+- Игра запускается, меню и пауза идут на 60–110 FPS.
+- Уровни грузятся, играть можно от начала до конца.
+- Бои — в среднем около 44 FPS на низких настройках, в тяжёлых местах проседает до 27–35.
+- Видеопамять держится на 2–3 ГБ, без утечек.
+
+Подробности, замеры и открытые проблемы — в [STATUS.md](STATUS.md).
+
+## Известные проблемы
+
+- Чёрные лица и пятна на коже, руках, перчатках. Сильнее всего видно в катсцене в поезде.
+- Объекты иногда появляются с запозданием при повороте камеры (проверки видимости).
+- Загрузка может зависнуть, пока окно игры не на экране.
+- В бою Zink каждый кадр ждёт видеокарту при записи в один буфер — это примерно 15 FPS.
+  Экспериментальное исправление есть (`ZINK_KK_MAP_STAGE=1`), но оно даёт артефакты.
+
+## Что исправлено в Mesa
+
+KosmicKrisp:
+
+- утечка памяти из allocator'ов команд Metal 4 (видеопамять росла до 20+ ГБ);
+- соседние проходы рендера склеиваются в один буфер команд Metal: ~120 → ~24 буфера
+  на кадр, FPS в тяжёлых сценах вырос примерно с 20 до 45–50;
+- сброс, копирование и запись запросов собираются в пачки: 200–800 → 25–35 мелких задач на кадр;
+- утечка ссылки на drawable — из-за неё через ~15 тыс. кадров пропадала картинка;
+- защиты от нулевых размеров текстур, копий и dispatch'ей, а также переполнения запросов;
+- временная диагностика производительности (`kkperf` в логе).
+
+Zink:
+
+- не больше 32 пакетов команд в работе (`ZINK_KK_MAX_BATCHES`), иначе видеопамять росла до 8–13 ГБ;
+- режим `ZINK_KK_IMPLICIT_RP_SYNC=2`: чтение глубины не рвёт проход рендера;
+- пулы запросов меньше, освобождение устаревших запросов;
+- учёт того, где Zink ждёт видеокарту (`zinkwait` в логе).
+
+Все изменения Mesa — в одном файле `mesa-patches.diff` (относительно Mesa 26.2.4).
+
+## Что в репозитории
+
+- `mesa-patches.diff` — патчи Mesa 26.2.4 (KosmicKrisp и Zink).
+- `vkshim/` — подмена `libMoltenVK.dylib`: подключает KosmicKrisp для нужного префикса,
+  ограничивает API версией 1.3, экспортирует `vkCreateMetalSurfaceEXT`, остальное отдаёт MoltenVK.
+  Переменные из файла `compatdata/<appid>/notproton-kosmickrisp` (строки `KEY=VALUE`)
+  выставляются до загрузки драйвера.
+- `fiberfix/` — прокси `dinput8.dll`, чинит встроенный `GetCurrentFiber()` (`gs:[0x20]`)
+  в CrossOver на macOS.
+- `notproton/run.patch` — патч скрипта запуска NotProton: запись кадров Metal
+  (`MTL_CAPTURE_ENABLED=1`) и отключение оверлея Steam (`NO_STEAM_OVERLAY=1`).
+- `mtl4test/` — маленькие тесты Metal 4. Например, `rp.m` меряет цену проходов рендера
+  и буферов команд.
+- `gltest/` — тесты OpenGL и fiber'ов.
+- `bin/` — вспомогательные скрипты: `wolfwine` (wine для префикса игры), cross-файлы meson,
+  мониторы памяти.
+- `backup/` — исходные версии пары файлов Mesa для сравнения.
+- `STATUS.md` — где остановились, замеры, следующие шаги.
+
+Исходники и сборки Mesa в репозиторий не входят, их нужно собрать самому (см. ниже).
+
+## Сборка
+
+Скачайте архив Mesa 26.2.4 с GitLab (тег `mesa-26.2.4`, он распаковывается в `mesa-mesa-26.2.4`)
+и наложите патчи:
+
+    curl -LO https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-26.2.4/mesa-mesa-26.2.4.tar.gz
+    mkdir -p mesa && tar -xzf mesa-mesa-26.2.4.tar.gz -C mesa
+    patch -d mesa -p0 < mesa-patches.diff
+
+KosmicKrisp (x86_64, собирается под Rosetta, нужен x86_64 Python 3.12):
 
     python3.12-x64 -m venv venv-x64 && venv-x64/bin/pip install mako packaging pyyaml meson
     arch -x86_64 env PATH="$PWD/clctools:$PWD/venv-x64/bin:/usr/bin:/bin:/opt/homebrew/bin" \
@@ -37,11 +90,15 @@ KosmicKrisp (x86_64, under Rosetta):
       -Dvulkan-drivers=kosmickrisp -Dgallium-drivers= -Dopengl=false -Dglx=disabled -Degl=disabled \
       -Dgbm=disabled -Dgles1=disabled -Dgles2=disabled -Dzstd=disabled -Dmesa-clc=system -Dllvm=disabled \
       -Dspirv-tools=disabled -Dxmlconfig=disabled -Dexpat=disabled --prefer-static
-    arch -x86_64 ... ninja -C build-kk-x64
-    # install: build-kk-x64/src/kosmickrisp/vulkan/libvulkan_kosmickrisp.dylib
-    #   -> ~/Library/Application Support/notproton/runners/crossover-26.3.0.39832/CrossOver/lib64/kosmickrisp/
+    arch -x86_64 env PATH="$PWD/clctools:$PWD/venv-x64/bin:/usr/bin:/bin:/opt/homebrew/bin" \
+      MACOSX_DEPLOYMENT_TARGET=26.0 ninja -C build-kk-x64 src/kosmickrisp/vulkan/libvulkan_kosmickrisp.dylib
 
-Mesa Zink for Windows (needs Homebrew bison/flex, mingw-w64):
+`clctools/` — нативные `mesa_clc` и `vtn_bindgen2` из той же версии Mesa (собираются отдельно,
+в `build-clc/`). Готовый `libvulkan_kosmickrisp.dylib` кладётся в
+`~/Library/Application Support/notproton/runners/crossover-26.3.0.39832/CrossOver/lib64/kosmickrisp/`
+и подписывается `codesign -f -s -`.
+
+Zink для Windows (нужны bison и flex из Homebrew и mingw-w64):
 
     PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PWD/venv/bin:/opt/homebrew/bin:/usr/bin:/bin" \
       meson setup build-win mesa/mesa-mesa-26.2.4 --cross-file bin/mingw64.ini --buildtype=release \
@@ -50,27 +107,33 @@ Mesa Zink for Windows (needs Homebrew bison/flex, mingw-w64):
       -Dspirv-tools=disabled -Dgallium-wgl-dll-name=libgallium_wgl -Dmicrosoft-clc=disabled \
       -Dgallium-va=disabled -Dvideo-codecs= -Db_ndebug=true
     ninja -C build-win
-    # install into the game folder: libgallium_wgl.dll, opengl32.dll, subprojects/zlib-1.3.1/libz-1.dll,
-    #   plus mingw's libwinpthread-1.dll
 
-## Status (2026-10-08)
+В папку игры кладутся `libgallium_wgl.dll`, `opengl32.dll`, `libz-1.dll` (из `subprojects/zlib-1.3.1`)
+и `libwinpthread-1.dll` из mingw.
 
-Works: game starts, menus at 60 FPS, levels load, play is possible (17–40 FPS).
-Open issues:
-- GPU memory grows to ~20 GB over a session (swap, FPS drops to 1–8, eventually hangs).
-  KosmicKrisp-level live allocations are only ~2 GB, so Metal objects retain freed heaps.
-  Next step: read new `kkbuf:` counters (live VkBuffers vs bound) from
-  `~/Library/Application Support/notproton/launchers/201810/notproton-wine.log`.
-- Black patches on gloves/hands (material/format artifact).
-- TEMP diagnostics in KosmicKrisp (kkbo, kkbridge2, kkobj, kkwsi, kkmem, kkbuf) should be removed
-  once done.
+## Настройки
 
-## Fixes made so far
+Флаги KosmicKrisp задаются через `MESA_KK_DEBUG` (через запятую) в файле
+`compatdata/201810/notproton-kosmickrisp`:
 
-KosmicKrisp: zero-size texture/copy/dispatch guards (AGX divide-by-zero), explicit CATransaction
-commit/flush, commit feedback handler registered once (was appended on every submit), occlusion
-query overflow aliased to a spare slot, timestamp counter heaps recycled and optional, bounded
-timestamp stage map.
-Zink: smaller query pools (32), release stale vk queries on begin_query (pinned pools).
-Other: fiberfix proxy, vkshim, `MESA_EXTENSION_OVERRIDE` hides GPU meminfo so the game doesn't
-pick an 8192 virtual texture cache.
+| флаг | что делает |
+|---|---|
+| `no_list_restart_unroll` | искать маркеры разрыва в индексах вместо развёртки (сейчас включён) |
+| `no_rp_merge` | не склеивать проходы рендера |
+| `no_query_batch` | не собирать запросы в пачки |
+| `no_defer_avail` | не откладывать отметки готовности запросов |
+| `safe_math` | точная математика в шейдерах вместо быстрой |
+| `serial_commit` | каждая отправка на видеокарте ждёт предыдущую |
+| `no_robustness` | выключить robustness |
+
+Переменные Zink задаются в реестре префикса (`HKCU\Environment`):
+`GALLIUM_DRIVER=zink`, `ZINK_KK_IMPLICIT_RP_SYNC=2`, по желанию `ZINK_KK_MAX_BATCHES`
+и `ZINK_KK_MAP_STAGE=1` (эксперимент, с артефактами).
+
+Параметры запуска игры: `+com_skipIntroVideo 1 +vt_pageImageSizeUnique 4096`.
+Игра сама выставляет кэш виртуальных текстур в 8192, поэтому размер переопределяется
+и параметром запуска, и через `MESA_EXTENSION_OVERRIDE` (прячет от игры объём видеопамяти).
+
+## Лицензия
+
+Патчи Mesa распространяются под лицензией Mesa (MIT). Игра и CrossOver сюда не входят.
